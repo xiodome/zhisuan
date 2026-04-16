@@ -23,6 +23,10 @@
           <el-icon><Setting /></el-icon>
           <span>管理员控制台</span>
         </el-menu-item>
+        <el-menu-item index="4">
+          <el-icon><User /></el-icon>
+          <span>用户管理</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     
@@ -39,6 +43,8 @@
 
         <AdminConsole v-if="activeIndex === '3'" />
 
+        <AdminUserManagement v-if="activeIndex === '4'" />
+
       </el-main>
     </el-container>
   </el-container>
@@ -50,6 +56,8 @@ import TaskCenter from './components/TaskCenter.vue'
 import AdminConsole from './components/AdminConsole.vue'
 // 新增引入开发者组件
 import DeveloperCollab from './components/DeveloperCollab.vue' 
+// 新增管理员后台用户管理界面
+import AdminUserManagement from './components/AdminUserManagement.vue'
 
 const activeIndex = ref('1')
 
