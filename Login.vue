@@ -61,6 +61,7 @@ const handleLogin = async () => {
     const res = await loginApi(loginForm.value.username, loginForm.value.password)
     userStore.setInfo(res)
     ElMessage.success(`欢迎回来，${res.name}`)
+    // 【修改点】：直接删除了 router.push('/')，因为外部的 App.vue 会自动通过 v-if 切换页面
   } catch (err) {
     ElMessage.error(err.message)
   } finally {
@@ -77,8 +78,12 @@ const handleRegister = async () => {
   loading.value = true
   try {
     await registerApi({ username, password })
-    ElMessage.success('注册成功！请切换至登录页登录')
-    activeTab.value = 'login' // 注册成功后自动跳转到登录标签
+    ElMessage.success('注册成功！请直接登录系统')
+    
+    loginForm.value.username = username
+    loginForm.value.password = password
+    activeTab.value = 'login' 
+    
   } catch (err) {
     ElMessage.error(err.message)
   } finally {
