@@ -219,7 +219,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-// 导入接口api
 import { fetchUserList, updateUserRole, updateUserStatus } from '../api/AdminUserManagement'
 
 const filters = ref({
@@ -228,16 +227,18 @@ const filters = ref({
   status: ''
 })
 
+// 修改点：角色严格对应后端的全大写格式
 const roleOptions = [
-  { label: '管理员', value: 'admin' },
-  { label: 'AI开发者', value: 'AIdeveloper' },
-  { label: '零基础用户', value: 'user' }
+  { label: '管理员', value: 'ADMIN' },
+  { label: 'AI开发者', value: 'DEVELOPER' },
+  { label: '零基础用户', value: 'ZERO_BASIS' }
 ]
 
+// 修改点：标签颜色映射键名同步更改
 const roleTagMap = {
-  admin: 'danger',
-  AIdeveloper: 'success',
-  user: 'info'
+  ADMIN: 'danger',
+  DEVELOPER: 'success',
+  ZERO_BASIS: 'info'
 }
 
 const statusTagMap = {

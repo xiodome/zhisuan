@@ -18,17 +18,17 @@
           <span>零基础建模中心</span>
         </el-menu-item>
         
-        <el-menu-item index="2" v-if="['admin', 'AIdeveloper'].includes(userStore.role)">
+        <el-menu-item index="2" v-if="['ADMIN', 'DEVELOPER'].includes(userStore.role)">
           <el-icon><Edit /></el-icon>
           <span>AI 开发者协同</span>
         </el-menu-item>
         
-        <el-menu-item index="3" v-if="userStore.role === 'admin'">
+        <el-menu-item index="3" v-if="userStore.role === 'ADMIN'">
           <el-icon><Setting /></el-icon>
           <span>管理员控制台</span>
         </el-menu-item>
         
-        <el-menu-item index="4" v-if="userStore.role === 'admin'">
+        <el-menu-item index="4" v-if="userStore.role === 'ADMIN'">
           <el-icon><User /></el-icon>
           <span>用户管理</span>
         </el-menu-item>
@@ -66,11 +66,11 @@ import AdminUserManagement from './components/AdminUserManagement.vue'
 const userStore = useUserStore()
 const activeIndex = ref('1')
 
-// 监听角色变化，登录后自动跳到该角色的专属页面
+// 修改点：监听角色变化时的暗号全部更新为大写
 watch(() => userStore.role, (newRole) => {
-  if (newRole === 'admin') {
+  if (newRole === 'ADMIN') {
     activeIndex.value = '4' // 管理员默认跳到“用户管理”
-  } else if (newRole === 'AIdeveloper') {
+  } else if (newRole === 'DEVELOPER') {
     activeIndex.value = '2' // 开发者默认跳到“协同页”
   } else {
     activeIndex.value = '1' // 普通用户默认跳到“建模页”

@@ -1,130 +1,73 @@
-// 模拟假数据
+import axios from 'axios'
+import { useUserStore } from '../store/user'
 
-const mockUsers = [
-  {
-    id: 1,
-    username: '平台超级管理员',
-    role: 'admin',
-    status: 'enabled',
-    email: 'admin@zhisuan.ai',
-    lastLogin: '2026-04-16 10:12',
-    createdAt: '2025-01-10'
-  },
-  {
-    id: 2,
-    username: '算法大神_韩梅梅',
-    role: 'AIdeveloper',
-    status: 'enabled',
-    email: 'hanmeimei@zhisuan.ai',
-    lastLogin: '2026-04-16 09:03',
-    createdAt: '2025-03-18'
-  },
-  {
-    id: 3,
-    username: '农学学生_李雷',
-    role: 'user',
-    status: 'disabled',
-    email: 'lilei@zhisuan.ai',
-    lastLogin: '2026-04-12 19:21',
-    createdAt: '2025-07-21'
-  },
-  {
-    id: 4,
-    username: '医学院_张伟',
-    role: 'user',
-    status: 'enabled',
-    email: 'zhangwei@example.com',
-    lastLogin: '2026-04-15 23:58',
-    createdAt: '2025-10-02'
-  },
-  {
-    id: 5,
-    username: '小学生_孙颖',
-    role: 'user',
-    status: 'disabled',
-    email: 'sunying@example.com',
-    lastLogin: '2026-04-08 11:42',
-    createdAt: '2025-11-12'
-  },
-  {
-    id: 6,
-    username: '中学生_王芳',
-    role: 'AIdeveloper',
-    status: 'enabled',
-    email: 'wangfang@zhisuan.ai',
-    lastLogin: '2026-04-16 08:11',
-    createdAt: '2025-06-06'
-  },
-  {
-    id: 7,
-    username: '大学生_刘杰',
-    role: 'AIdeveloper',
-    status: 'enabled',
-    email: 'liujie@zhisuan.ai',
-    lastLogin: '2026-04-14 14:29',
-    createdAt: '2025-09-05'
+const api = axios.create({
+  baseURL: 'http://114.116.220.203:8000',
+  timeout: 5000
+})
+
+api.interceptors.request.use(config => {
+  const store = useUserStore()
+  if (store.token) {
+    config.headers.Authorization = `Bearer ${store.token}`
   }
-]
+  return config
+})
 
-const sleep = (ms = 180) => new Promise((resolve) => setTimeout(resolve, ms))
-const deepCopy = (data) => JSON.parse(JSON.stringify(data))
+// 1. 获取真实用户列表
+export async function fetchUserList(filters) {
+  try {
+    const params = {
+      page: 1,
+      page_size: 1000
+    }
+    
+    if (filters.username) params.username = filters.username
+    if (filters.role) params.role = filters.role
+    if (filters.status === 'enabled') params.status = 1
+    if (filters.status === 'disabled') params.status = 0
 
-export async function fetchUserList(params = {}) {
-  await sleep()
+    const response = await api.get('/api/admin/users', { params })
+    
+    // 【关键修复点】：axios把后端返回的JSON包在response.data里
+    const responseData = response.data
 
-  // TODO[后端接口插入点]
-  // 接入后端时建议替换为：
-  // return request.get('/admin/users', { params })
-  // 并保持返回结构：{ list: User[], total: number }
+    // 必须从 responseData.list 里取出数组才能进行 map 遍历！
+    const formattedList = responseData.list.map(user => ({
+      id: user.id,
+      username: user.username,
+      email: user.email || '未填写',
+      role: user.role,
+      status: user.status === 1 ? 'enabled' : 'disabled',
+      lastLogin: user.created_at ? user.created_at.split('T')[0] : '未知'
+    }))
 
-  const keyword = (params.username || '').trim().toLowerCase()
-  const role = params.role || ''
-  const status = params.status || ''
-
-  const filtered = mockUsers.filter((user) => {
-    const matchKeyword =
-      !keyword ||
-      user.username.toLowerCase().includes(keyword)
-    const matchRole = !role || user.role === role
-    const matchStatus = !status || user.status === status
-
-    return matchKeyword && matchRole && matchStatus
-  })
-
-  return {
-    list: deepCopy(filtered),
-    total: filtered.length
+    return {
+      list: formattedList,
+      total: responseData.total
+    }
+  } catch (error) {
+    throw new Error('获取用户列表失败，请检查网络或管理员权限')
   }
 }
 
-export async function updateUserRole(payload) {
-  await sleep()
-
-  // TODO[后端接口插入点]
-  // 接入后端时建议替换为：
-  // return request.put(`/admin/users/${payload.userId}/role`, { role: payload.role })
-
-  const target = mockUsers.find((item) => item.id === payload.userId)
-  if (!target) {
-    throw new Error('用户不存在')
+// 2. 修改真实用户角色
+export async function updateUserRole({ userId, role }) {
+  try {
+    const response = await api.put(`/api/admin/users/${userId}/role`, { role: role })
+    return response.data
+  } catch (error) {
+    throw new Error('角色修改失败')
   }
-  target.role = payload.role
-
-  return { success: true }
 }
 
-export async function updateUserStatus(payload) {
-  await sleep()
-
-  // TODO[后端接口插入点]
-  // 接入后端时建议替换为：
-  // return request.patch(`/admin/users/${payload.userId}/status`, { status: payload.status })
-
-  const target = mockUsers.find((item) => item.id === payload.userId)
-  if (!target) {
-    throw new Error('用户不存在')
+// 3. 修改真实用户状态
+export async function updateUserStatus({ userId, status }) {
+  try {
+    const numericStatus = status === 'enabled' ? 1 : 0
+    const response = await api.patch(`/api/admin/users/${userId}/status`, { status: numericStatus })
+    return response.data
+  } catch (error) {
+    throw new Error('状态修改失败')
   }
-  target.status = payload.status
-
-  return { success: true }
 }
