@@ -9,3 +9,7 @@ Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://
 ### 2026.4.16
 新增用户管理页面组件：/src/components/AdminUserManagement.vue
 新增用户管理 API 占位层（后端对接点）/src/api/userManagement.js
+
+
+### 2026.4.21
+用户管理以及登陆注册前端部分完成
