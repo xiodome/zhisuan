@@ -1,8 +1,9 @@
 import axios from 'axios'
+import { API_BASE_URL } from '../config/api'
 
-// 1. 创建 Axios 实例，配置后端服务器的真实基础地址
+// 1. 创建 Axios 实例，统一使用配置文件中的后端基础地址
 const api = axios.create({
-  baseURL: 'http://114.116.220.203:8000',
+  baseURL: API_BASE_URL,
   timeout: 5000 // 请求超时时间设为 5 秒
 })
 

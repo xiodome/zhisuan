@@ -20,7 +20,7 @@
             <el-form-item label="上传数据集 (仅支持 CSV)">
               <el-upload
                 drag
-                action="https://run.mocky.io/v3/9d059bf9-4660-45f2-925d-ce80ad6c4d15"
+                :action="AGENT_DATASET_UPLOAD_URL"
                 multiple
                 style="width: 100%;"
               >
@@ -63,6 +63,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import { AGENT_DATASET_UPLOAD_URL } from '../config/api'
 
 const taskDesc = ref('')
 const isWorking = ref(false)

@@ -1,8 +1,9 @@
 import axios from 'axios'
+import { API_BASE_URL } from '../config/api'
 import { useUserStore } from '../store/user'
 
 const api = axios.create({
-  baseURL: 'http://114.116.220.203:8000',
+  baseURL: API_BASE_URL,
   timeout: 5000
 })
 
