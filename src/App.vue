@@ -1,83 +1,355 @@
 <template>
   <Login v-if="!userStore.token" />
 
-  <el-container v-else style="height: 100vh;">
-    <el-aside width="200px" style="background-color: #304156;">
-      <div style="color: white; text-align: center; padding: 20px; font-size: 18px; font-weight: bold;">
-        智算 AI4ML 社区
+  <div v-else class="app-shell">
+    <aside class="app-sidebar">
+      <div class="brand">
+        <div class="brand-mark">
+          <el-icon><Connection /></el-icon>
+        </div>
+        <div class="brand-copy">
+          <div class="brand-name">智算</div>
+          <div class="brand-sub">AI4ML Agent</div>
+        </div>
       </div>
-      <el-menu
-        :default-active="activeIndex"
-        active-text-color="#409EFF"
-        background-color="#304156"
-        text-color="#bfcbd9"
-        @select="(idx) => activeIndex = idx"
-      >
-        <el-menu-item index="1">
-          <el-icon><Menu /></el-icon>
-          <span>零基础建模中心</span>
+
+      <el-menu :default-active="activeIndex" class="app-menu" @select="(idx) => (activeIndex = idx)">
+        <el-menu-item index="1" title="任务中心">
+          <span class="nav-icon">
+            <el-icon><EditPen /></el-icon>
+          </span>
+          <span class="nav-text">任务</span>
         </el-menu-item>
-        
-        <el-menu-item index="2" v-if="['ADMIN', 'DEVELOPER'].includes(userStore.role)">
-          <el-icon><Edit /></el-icon>
-          <span>AI 开发者协同</span>
+
+        <el-menu-item index="3" v-if="userStore.role === 'ADMIN'" title="管理控制台">
+          <span class="nav-icon">
+            <el-icon><Monitor /></el-icon>
+          </span>
+          <span class="nav-text">运营</span>
         </el-menu-item>
-        
-        <el-menu-item index="3" v-if="userStore.role === 'ADMIN'">
-          <el-icon><Setting /></el-icon>
-          <span>管理员控制台</span>
-        </el-menu-item>
-        
-        <el-menu-item index="4" v-if="userStore.role === 'ADMIN'">
-          <el-icon><User /></el-icon>
-          <span>用户管理</span>
+
+        <el-menu-item index="4" v-if="userStore.role === 'ADMIN'" title="用户管理">
+          <span class="nav-icon">
+            <el-icon><User /></el-icon>
+          </span>
+          <span class="nav-text">用户</span>
         </el-menu-item>
       </el-menu>
-    </el-aside>
-    
-    <el-container>
-      <el-header style="border-bottom: 1px solid #eee; display: flex; align-items: center; justify-content: flex-end; background-color: white;">
-        <el-avatar size="small" src="https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png" />
-        <span style="margin: 0 15px 0 10px; font-size: 14px;">
-          {{ userStore.name }} ({{ userStore.role }})
-        </span>
-        <el-button type="danger" size="small" plain @click="userStore.logout">退出登录</el-button>
-      </el-header>
-      
-      <el-main style="background-color: #f0f2f5;">
+
+      <div class="sidebar-section">
+        <el-tooltip placement="right" :content="`${userStore.name} · ${roleLabel}`">
+        <div class="identity-card">
+          <div class="user-avatar">
+            <el-icon><UserFilled /></el-icon>
+          </div>
+          <div class="identity-copy">
+            <div class="identity-name">{{ userStore.name }}</div>
+            <div class="identity-role">{{ roleLabel }}</div>
+          </div>
+        </div>
+        </el-tooltip>
+      </div>
+
+      <button class="logout-button" title="退出登录" @click="userStore.logout">
+        <el-icon><SwitchButton /></el-icon>
+      </button>
+    </aside>
+
+    <main class="app-main">
+      <section class="content-surface">
         <TaskCenter v-if="activeIndex === '1'" />
-        <DeveloperCollab v-if="activeIndex === '2'" />
         <AdminConsole v-if="activeIndex === '3'" />
         <AdminUserManagement v-if="activeIndex === '4'" />
-      </el-main>
-    </el-container>
-  </el-container>
+      </section>
+    </main>
+  </div>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useUserStore } from './store/user'
 import Login from './components/Login.vue'
 import TaskCenter from './components/TaskCenter.vue'
-import DeveloperCollab from './components/DeveloperCollab.vue'
 import AdminConsole from './components/AdminConsole.vue'
 import AdminUserManagement from './components/AdminUserManagement.vue'
 
 const userStore = useUserStore()
 const activeIndex = ref('1')
 
-// 修改点：监听角色变化时的暗号全部更新为大写
-watch(() => userStore.role, (newRole) => {
-  if (newRole === 'ADMIN') {
-    activeIndex.value = '4' // 管理员默认跳到“用户管理”
-  } else if (newRole === 'DEVELOPER') {
-    activeIndex.value = '2' // 开发者默认跳到“协同页”
-  } else {
-    activeIndex.value = '1' // 普通用户默认跳到“建模页”
-  }
-}, { immediate: true })
+const roleMap = {
+  ADMIN: '管理员',
+  DEVELOPER: 'AI 开发者',
+  ZERO_BASIS: '零基础用户'
+}
+
+const roleLabel = computed(() => roleMap[userStore.role] || userStore.role || '用户')
+
+watch(
+  () => userStore.role,
+  (newRole) => {
+    if (newRole !== 'ADMIN' && ['3', '4'].includes(activeIndex.value)) {
+      activeIndex.value = '1'
+    }
+  },
+  { immediate: true }
+)
 </script>
 
-<style>
-body { margin: 0; padding: 0; }
+<style scoped>
+.app-shell {
+  height: 100vh;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  background: var(--zs-bg);
+  color: var(--zs-text);
+  overflow: hidden;
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px 10px;
+  border-right: 1px solid #242424;
+  background: var(--zs-sidebar);
+  z-index: 10;
+  overflow: hidden;
+  width: 76px;
+  transition:
+    width 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.app-sidebar:hover {
+  width: 220px;
+  box-shadow: 18px 0 42px rgba(0, 0, 0, 0.3);
+}
+
+.brand {
+  justify-content: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0 12px;
+}
+
+.brand-mark,
+.user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--zs-text);
+  border: 1px solid var(--zs-border);
+  background: #101010;
+}
+
+.brand-mark {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  margin-left: 10px;
+}
+
+.brand-copy,
+.identity-copy {
+  min-width: 0;
+  opacity: 0;
+  transform: translateX(-6px);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+  white-space: nowrap;
+}
+
+.app-sidebar:hover .brand-copy,
+.app-sidebar:hover .identity-copy {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.brand-name,
+.identity-name {
+  color: #f4f4f4;
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.brand-sub,
+.identity-role {
+  margin-top: 2px;
+  color: #9f9f9f;
+  font-size: 12px;
+}
+
+.app-menu {
+  flex: 1;
+  border-right: 0 !important;
+  background: transparent !important;
+}
+
+.app-menu :deep(.el-menu-item) {
+  width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin: 2px 0;
+  padding: 0 !important;
+  border-radius: 16px;
+  color: #d7d7d7;
+  font-size: 14px;
+  font-weight: 620;
+  position: relative;
+  overflow: hidden;
+  transition:
+    background-color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.app-menu :deep(.el-menu-item .el-icon) {
+  margin-right: 0;
+  font-size: 20px;
+}
+
+.nav-icon {
+  flex: 0 0 54px;
+  width: 54px;
+  height: 54px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-icon .el-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-text {
+  flex: 0 0 auto;
+  margin-left: 0;
+  color: #f4f4f4;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-6px);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+  white-space: nowrap;
+}
+
+.app-sidebar:hover .app-menu :deep(.el-menu-item) {
+  width: 100%;
+  justify-content: flex-start;
+  padding: 0 !important;
+}
+
+.app-sidebar:hover .nav-text {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.app-menu :deep(.el-menu-item:hover) {
+  background: #242424;
+  transform: translateY(-1px);
+}
+
+.app-menu :deep(.el-menu-item.is-active) {
+  color: #ffffff;
+  background: #303030;
+}
+
+.sidebar-section {
+  padding: 0;
+}
+
+.identity-card {
+  justify-content: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 14px;
+  background: #202020;
+  transition:
+    background-color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.identity-card:hover {
+  background: #303030;
+  transform: translateY(-1px);
+}
+
+.user-avatar {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+}
+
+.logout-button {
+  width: 54px;
+  height: 54px;
+  justify-content: center;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  color: #d9d9d9;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.logout-button:hover {
+  background: #242424;
+  transform: translateY(-1px);
+}
+
+.app-main {
+  min-width: 0;
+  min-height: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0 26px;
+  overflow: hidden;
+}
+
+.content-surface {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 920px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .app-sidebar {
+    position: relative;
+    height: auto;
+  }
+
+  .app-menu {
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+  }
+
+  .app-main {
+    padding: 0 14px 14px;
+  }
+}
 </style>

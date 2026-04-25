@@ -1269,6 +1269,9 @@ onMounted(async () => {
 <style scoped>
 .admin-console {
   width: 100%;
+  height: 100vh;
+  padding: 24px 0;
+  overflow: auto;
 }
 
 .mock-alert {
@@ -1280,7 +1283,7 @@ onMounted(async () => {
 }
 
 .summary-label {
-  color: #909399;
+  color: var(--zs-muted);
   font-size: 13px;
 }
 
@@ -1291,19 +1294,19 @@ onMounted(async () => {
 }
 
 .text-primary {
-  color: #409eff;
+  color: var(--zs-text);
 }
 
 .text-success {
-  color: #67c23a;
+  color: var(--zs-success);
 }
 
 .text-warning {
-  color: #e6a23c;
+  color: var(--zs-warning);
 }
 
 .text-danger {
-  color: #f56c6c;
+  color: var(--zs-danger);
 }
 
 .section-card {
@@ -1319,6 +1322,7 @@ onMounted(async () => {
 
 .section-title {
   font-weight: 600;
+  color: var(--zs-text);
 }
 
 .filter-form {
@@ -1331,7 +1335,7 @@ onMounted(async () => {
 
 .alert-detail {
   margin-top: 6px;
-  color: #f56c6c;
+  color: var(--zs-danger);
   font-size: 13px;
 }
 
@@ -1350,6 +1354,14 @@ onMounted(async () => {
 }
 
 :deep(.quota-insufficient-row) {
-  --el-table-tr-bg-color: #fff2f0;
+  --el-table-tr-bg-color: rgba(185, 28, 28, 0.05);
+}
+
+:deep(.el-tabs__header) {
+  margin-bottom: 18px;
+}
+
+:deep(.el-card__body) {
+  color: var(--zs-text);
 }
 </style>
