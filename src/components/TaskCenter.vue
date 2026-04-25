@@ -1,162 +1,119 @@
 <template>
-  <div class="zs-page agent-workbench">
-    <div class="zs-page-head">
-      <div>
-        <p class="zs-eyebrow">Agent workflow</p>
-        <h2 class="zs-title">从自然语言到可复用模型</h2>
-        <p class="zs-subtitle">
-          上传 CSV，描述目标，系统会按任务解析、数据分析、模型规划、训练、代码生成和报告产出推进。
-        </p>
-      </div>
-      <div class="head-actions">
-        <el-switch
-          v-model="runOffline"
-          inline-prompt
-          active-text="离线"
-          inactive-text="LLM"
-        />
-        <el-button plain :loading="loadingTasks" @click="loadTasks">
+  <div class="agent-console">
+    <aside class="task-rail">
+      <div class="rail-head">
+        <button class="new-task-button" @click="resetComposer">
+          <el-icon><EditPen /></el-icon>
+          <span>新建任务</span>
+        </button>
+        <button class="icon-button" :class="{ spinning: loadingTasks }" :disabled="loadingTasks" title="刷新任务" @click="loadTasks">
           <el-icon><Refresh /></el-icon>
-          刷新
-        </el-button>
+        </button>
       </div>
-    </div>
 
-    <section class="workbench-grid">
-      <el-card class="task-card" shadow="never">
-        <template #header>
-          <div class="card-head">
-            <div>
-              <div class="card-title">任务输入</div>
-              <div class="card-subtitle">保持描述清楚，Agent 会自动结构化建模意图。</div>
-            </div>
-            <el-icon><EditPen /></el-icon>
+      <div class="rail-label">最近任务</div>
+      <div class="task-list">
+        <button
+          v-for="task in taskList"
+          :key="task.task_id"
+          class="task-item"
+          :class="{ active: task.task_id === currentTaskId }"
+          @click="selectTask(task.task_id)"
+        >
+          <span class="task-title">{{ task.task_description || task.task_id }}</span>
+          <span class="task-meta">
+            <span :class="['status-dot', task.status]"></span>
+            {{ task.status }}
+          </span>
+        </button>
+        <div v-if="!taskList.length" class="rail-empty">暂无任务</div>
+      </div>
+    </aside>
+
+    <main class="agent-main">
+      <section class="hero-line">
+        <div>
+          <p class="zs-eyebrow">AI4ML Agent</p>
+          <h2 class="zs-title">你想让 Agent 建模什么？</h2>
+          <p class="zs-subtitle">上传 CSV，描述目标。完成后的任务会出现在左侧列表，可随时切换查看报告和预测接口。</p>
+        </div>
+        <div class="run-mode">
+          <span>Mode</span>
+          <el-switch v-model="runOffline" inline-prompt active-text="离线" inactive-text="LLM" />
+        </div>
+      </section>
+
+      <section class="status-strip">
+        <div class="status-card">
+          <span>当前任务</span>
+          <strong>{{ currentTaskId || '未选择' }}</strong>
+        </div>
+        <div class="status-card">
+          <span>状态</span>
+          <strong>{{ lifecycleStatus }}</strong>
+        </div>
+        <div class="status-card">
+          <span>目标列</span>
+          <strong>{{ currentTask?.target_column || '-' }}</strong>
+        </div>
+        <div class="status-card">
+          <span>任务类型</span>
+          <strong>{{ currentTask?.task_type || '-' }}</strong>
+        </div>
+      </section>
+
+      <section class="composer-card">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">创建或重新运行任务</div>
+            <div class="panel-subtitle">输入任务目标并上传 CSV。选择历史任务后，这里也会显示该任务的原始描述。</div>
           </div>
-        </template>
+        </div>
+        <el-input
+          v-model="taskDesc"
+          type="textarea"
+          :rows="4"
+          maxlength="500"
+          resize="none"
+          show-word-limit
+          placeholder="请描述你的建模目标，例如：根据客户年龄、收入和城市预测 bought 字段。"
+        />
+        <div class="composer-actions">
+          <el-upload
+            :show-file-list="false"
+            :http-request="handleDatasetUpload"
+            accept=".csv,text/csv"
+          >
+            <el-button plain>
+              <el-icon><Paperclip /></el-icon>
+              {{ datasetName || '上传 CSV' }}
+            </el-button>
+          </el-upload>
 
-        <el-form label-position="top">
-          <el-form-item label="建模需求">
-            <el-input
-              v-model="taskDesc"
-              type="textarea"
-              :rows="5"
-              maxlength="500"
-              show-word-limit
-              placeholder="例如：请根据这份客户数据预测 bought 字段，并生成可解释的分类模型。"
-            />
-          </el-form-item>
-
-          <el-form-item label="CSV 数据集">
-            <el-upload
-              drag
-              :show-file-list="false"
-              :http-request="handleDatasetUpload"
-              accept=".csv,text/csv"
-            >
-              <el-icon class="upload-icon"><UploadFilled /></el-icon>
-              <div class="el-upload__text">
-                {{ datasetName || '拖入 CSV 文件，或点击上传' }}
-              </div>
-              <template #tip>
-                <div class="upload-tip">
-                  {{ datasetId ? `已绑定数据集 #${datasetId}` : '上传成功后会自动读取数据预览。' }}
-                </div>
-              </template>
-            </el-upload>
-          </el-form-item>
-
-          <div class="hitl-row">
+          <div class="composer-right">
             <el-checkbox v-model="enableHitl" :disabled="!canReview">
-              {{ canReview ? '启用人工审核节点' : '零基础用户默认自动执行' }}
+              {{ canReview ? 'HITL 审核' : '自动执行' }}
             </el-checkbox>
-            <el-tooltip content="离线模式适合课堂演示和无 Key 环境；LLM 模式会调用真实模型。">
-              <el-icon><InfoFilled /></el-icon>
-            </el-tooltip>
-          </div>
 
-          <el-button
-            type="primary"
-            class="full-button"
-            :loading="creating || running"
-            @click="createAndRunTask"
-          >
-            <el-icon><VideoPlay /></el-icon>
-            创建并启动 Agent
-          </el-button>
-        </el-form>
-      </el-card>
-
-      <el-card class="workflow-card" shadow="never">
-        <template #header>
-          <div class="card-head">
-            <div>
-              <div class="card-title">Agent 状态流</div>
-              <div class="card-subtitle">{{ statusText }}</div>
-            </div>
-            <el-tag :type="statusTag" effect="plain">{{ lifecycleStatus }}</el-tag>
-          </div>
-        </template>
-
-        <div class="stage-list">
-          <div
-            v-for="stage in stages"
-            :key="stage.key"
-            class="stage-item"
-            :class="stage.status"
-          >
-            <div class="stage-icon">
-              <el-icon><component :is="stage.icon" /></el-icon>
-            </div>
-            <div class="stage-copy">
-              <div class="stage-title">{{ stage.title }}</div>
-              <div class="stage-desc">{{ stage.desc }}</div>
-            </div>
-            <div class="stage-state">{{ stageLabelMap[stage.status] }}</div>
+            <el-button type="primary" :loading="creating || running" @click="createAndRunTask">
+              <el-icon><VideoPlay /></el-icon>
+              运行
+            </el-button>
           </div>
         </div>
-      </el-card>
+      </section>
 
-      <el-card class="side-card" shadow="never">
-        <template #header>
-          <div class="card-head">
-            <div>
-              <div class="card-title">当前任务</div>
-              <div class="card-subtitle">任务状态、审核和产物入口。</div>
-            </div>
-            <el-icon><Files /></el-icon>
+      <section class="workflow-panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Agent 工作流</div>
+            <div class="panel-subtitle">{{ statusText }}</div>
           </div>
-        </template>
-
-        <div v-if="!currentTaskId" class="empty-state">
-          <el-icon><DocumentAdd /></el-icon>
-          <span>尚未创建任务</span>
-        </div>
-        <div v-else class="task-summary">
-          <div class="summary-line">
-            <span>任务 ID</span>
-            <strong>{{ currentTaskId }}</strong>
-          </div>
-          <div class="summary-line">
-            <span>数据集</span>
-            <strong>{{ datasetId || '-' }}</strong>
-          </div>
-          <div class="summary-line">
-            <span>审核节点</span>
-            <strong>{{ pendingReview?.review_node || pendingReview?.node || '无' }}</strong>
-          </div>
-
-          <el-alert
-            v-if="lifecycleStatus === 'WAITING_HUMAN'"
-            type="warning"
-            :closable="false"
-            show-icon
-            title="任务正在等待人工审核"
-            class="review-alert"
-          />
-
-          <div class="button-stack">
-            <el-button plain :disabled="!currentTaskId" @click="loadProgress">查看进度</el-button>
-            <el-button plain :disabled="!currentTaskId" @click="loadPendingReview">获取审核内容</el-button>
+          <div class="panel-actions">
+            <el-button plain :disabled="!currentTaskId" :loading="loadingProgress" @click="loadProgress">
+              <el-icon :class="{ spinning: loadingProgress }"><Refresh /></el-icon>
+              刷新进度
+            </el-button>
             <el-button
               v-if="canReview"
               type="success"
@@ -169,15 +126,29 @@
             </el-button>
           </div>
         </div>
-      </el-card>
-    </section>
 
-    <section class="detail-grid">
-      <el-card shadow="never">
-        <template #header>
-          <div class="card-title">数据预览</div>
-        </template>
-        <el-table v-if="previewRows.length" :data="previewRows" height="260">
+        <div class="stage-list">
+          <div v-for="stage in stages" :key="stage.key" class="stage-item" :class="stage.status">
+            <div class="stage-icon">
+              <el-icon><component :is="stage.icon" /></el-icon>
+            </div>
+            <div>
+              <div class="stage-title">{{ stage.title }}</div>
+              <div class="stage-desc">{{ stage.desc }}</div>
+            </div>
+            <div class="stage-state">{{ stageLabelMap[stage.status] }}</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="data-panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">数据预览</div>
+            <div class="panel-subtitle">{{ previewRows.length ? '展示前几行样本' : '上传或选择任务后读取数据预览' }}</div>
+          </div>
+        </div>
+        <el-table v-if="previewRows.length" :data="previewRows" height="250">
           <el-table-column
             v-for="column in previewColumns"
             :key="column"
@@ -186,31 +157,59 @@
             min-width="120"
           />
         </el-table>
-        <div v-else class="empty-state compact">
+        <div v-else class="empty-panel">
           <el-icon><Grid /></el-icon>
-          <span>上传数据集后显示前几行样本</span>
+          <span>暂无数据预览</span>
         </div>
-      </el-card>
+      </section>
 
-      <el-card shadow="never">
-        <template #header>
-          <div class="card-head">
-            <div class="card-title">任务产物</div>
-            <div class="artifact-actions">
-              <el-button text :disabled="!currentTaskId" @click="loadReport">报告</el-button>
-              <el-button text :disabled="!currentTaskId" @click="loadCode">代码</el-button>
-            </div>
-          </div>
-        </template>
-        <div class="artifact-box">
-          <pre v-if="artifactText">{{ artifactText }}</pre>
-          <div v-else class="empty-state compact">
-            <el-icon><Document /></el-icon>
-            <span>任务完成后可读取报告或代码</span>
+      <section class="inspector-card">
+        <div class="panel-head compact">
+          <div>
+            <div class="panel-title">预测接口</div>
+            <div class="panel-subtitle">任务完成后输入一条样本并调用 `/predict`。</div>
           </div>
         </div>
-      </el-card>
-    </section>
+
+        <el-input
+          v-model="predictionText"
+          type="textarea"
+          :rows="8"
+          resize="none"
+          placeholder='{"age": 30, "income": 6500, "city": "A"}'
+        />
+
+        <div class="predict-actions">
+          <el-button plain :disabled="!currentReport" @click="fillPredictionSample">填入样例</el-button>
+          <el-button
+            type="primary"
+            :disabled="lifecycleStatus !== 'COMPLETED'"
+            :loading="predicting"
+            @click="runPrediction"
+          >
+            <el-icon><Position /></el-icon>
+            预测
+          </el-button>
+        </div>
+
+        <pre v-if="predictionResult" class="result-box">{{ predictionResult }}</pre>
+      </section>
+
+      <section class="inspector-card">
+        <div class="panel-head compact">
+          <div>
+            <div class="panel-title">任务产物</div>
+            <div class="panel-subtitle">报告、代码和任务产物。</div>
+          </div>
+        </div>
+
+        <div class="artifact-actions">
+          <el-button plain :disabled="!currentTaskId" @click="loadReport">报告</el-button>
+          <el-button plain :disabled="!currentTaskId || !canReview" @click="loadCode">代码</el-button>
+        </div>
+        <pre class="artifact-box">{{ artifactText || '选择已完成任务后查看产物。' }}</pre>
+      </section>
+    </main>
   </div>
 </template>
 
@@ -226,39 +225,49 @@ import {
   fetchAgentTask,
   fetchAgentTasks,
   fetchDatasetPreview,
-  fetchPendingReview,
+  predictAgentTask,
   resumeAgentTask,
   runAgentTask,
   submitAgentReview,
   uploadAgentDataset
 } from '../api/agent'
 
-const taskDesc = ref('')
 const userStore = useUserStore()
+const taskList = ref([])
+const currentTask = ref(null)
+const taskDesc = ref('')
 const datasetId = ref(null)
 const datasetName = ref('')
 const previewRows = ref([])
 const currentTaskId = ref('')
 const lifecycleStatus = ref('CREATED')
 const currentStage = ref('')
-const pendingReview = ref(null)
 const artifactText = ref('')
+const predictionText = ref('')
+const predictionResult = ref('')
+const currentReport = ref(null)
 const runOffline = ref(true)
 const canReview = computed(() => ['ADMIN', 'DEVELOPER'].includes(userStore.role))
 const enableHitl = ref(canReview.value)
 const loadingTasks = ref(false)
+const loadingProgress = ref(false)
+const minSpin = (startedAt) => {
+  const elapsed = Date.now() - startedAt
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, 850 - elapsed)))
+}
 const creating = ref(false)
 const running = ref(false)
 const reviewing = ref(false)
+const predicting = ref(false)
 let pollTimer = null
 
 const stageDefinitions = [
   { key: 'manager_parse', title: 'Manager', desc: '解析自然语言需求与目标字段', icon: 'Connection' },
-  { key: 'data_analysis', title: 'Data Agent', desc: '分析数据质量、缺失值和字段类型', icon: 'DataAnalysis' },
-  { key: 'model_plan', title: 'Model Agent', desc: '规划任务类型、模型与评估指标', icon: 'Aim' },
-  { key: 'model_training', title: 'Training', desc: '训练轻量级分类或回归模型', icon: 'Cpu' },
-  { key: 'code_generation', title: 'Operation', desc: '生成 Python 代码与预测接口', icon: 'Document' },
-  { key: 'operation_report', title: 'Report', desc: '沉淀报告、代码和可下载产物', icon: 'TrendCharts' }
+  { key: 'data_analysis', title: 'Data Agent', desc: '检查数据质量、列类型和缺失值', icon: 'DataAnalysis' },
+  { key: 'model_plan', title: 'Model Agent', desc: '规划模型、指标和训练策略', icon: 'Aim' },
+  { key: 'model_training', title: 'Training', desc: '训练轻量模型并计算指标', icon: 'Cpu' },
+  { key: 'code_generation', title: 'Operation', desc: '生成代码和预测接口', icon: 'Document' },
+  { key: 'operation_report', title: 'Report', desc: '输出报告、代码和可复用产物', icon: 'TrendCharts' }
 ]
 
 const stageLabelMap = {
@@ -268,18 +277,12 @@ const stageLabelMap = {
   failed: '失败'
 }
 
-const statusTag = computed(() => {
-  if (lifecycleStatus.value === 'COMPLETED') return 'success'
-  if (lifecycleStatus.value === 'FAILED') return 'danger'
-  if (lifecycleStatus.value === 'WAITING_HUMAN') return 'warning'
-  return 'info'
-})
-
 const statusText = computed(() => {
-  if (!currentTaskId.value) return '创建任务后会在这里显示真实阶段状态。'
-  if (lifecycleStatus.value === 'WAITING_HUMAN') return '工作流已暂停，等待开发者确认后继续。'
-  if (lifecycleStatus.value === 'COMPLETED') return '任务已完成，可以查看报告与代码。'
-  return '工作流正在推进，页面会自动轮询状态。'
+  if (!currentTaskId.value) return '新建任务，或从左侧选择一个历史任务。'
+  if (lifecycleStatus.value === 'WAITING_HUMAN') return '工作流已暂停，等待开发者审核。'
+  if (lifecycleStatus.value === 'COMPLETED') return '任务已完成，可以调用预测接口。'
+  if (lifecycleStatus.value === 'FAILED') return '任务失败，请查看状态和后端日志。'
+  return '工作流正在运行或等待启动。'
 })
 
 const previewColumns = computed(() => {
@@ -314,7 +317,9 @@ const normalizeTaskId = (task) => task?.task_id || task?.id || task?.task?.task_
 
 const syncTaskState = (task) => {
   if (!task) return
+  currentTask.value = task
   currentTaskId.value = String(normalizeTaskId(task) || currentTaskId.value || '')
+  datasetId.value = task.dataset_id || datasetId.value
   lifecycleStatus.value = task.status || task.lifecycle_status || task.task_status || lifecycleStatus.value
   currentStage.value =
     task.current_stage ||
@@ -324,25 +329,34 @@ const syncTaskState = (task) => {
     currentStage.value
 }
 
+const resetComposer = () => {
+  taskDesc.value = ''
+  datasetName.value = ''
+  datasetId.value = null
+  currentTaskId.value = ''
+  currentTask.value = null
+  lifecycleStatus.value = 'CREATED'
+  currentStage.value = ''
+  previewRows.value = []
+  artifactText.value = ''
+  predictionText.value = ''
+  predictionResult.value = ''
+  currentReport.value = null
+}
+
 const handleDatasetUpload = async ({ file, onSuccess, onError }) => {
   try {
     const isCsv =
       file.type === 'text/csv' ||
       file.name.toLowerCase().endsWith('.csv') ||
       file.type === 'application/vnd.ms-excel'
-    const maxSize = 100 * 1024 * 1024
-    if (!isCsv) {
-      throw new Error('仅支持上传 CSV 文件')
-    }
-    if (file.size > maxSize) {
-      throw new Error('CSV 文件不能超过 100MB')
-    }
+    if (!isCsv) throw new Error('仅支持上传 CSV 文件')
+    if (file.size > 100 * 1024 * 1024) throw new Error('CSV 文件不能超过 100MB')
+
     const result = await uploadAgentDataset(file)
     datasetId.value = normalizeDatasetId(result)
     datasetName.value = file.name
-    if (!datasetId.value) {
-      throw new Error('上传成功，但响应中没有 dataset_id')
-    }
+    if (!datasetId.value) throw new Error('上传成功，但响应中没有 dataset_id')
     const preview = await fetchDatasetPreview(datasetId.value)
     previewRows.value = normalizeRows(preview).slice(0, 8)
     ElMessage.success('数据集上传成功')
@@ -354,22 +368,14 @@ const handleDatasetUpload = async ({ file, onSuccess, onError }) => {
 }
 
 const createAndRunTask = async () => {
-  if (creating.value || running.value) {
-    return
-  }
-  if (!taskDesc.value.trim()) {
-    ElMessage.warning('请先填写建模需求')
-    return
-  }
-  if (!datasetId.value) {
-    ElMessage.warning('请先上传 CSV 数据集')
-    return
-  }
-  if (taskDesc.value.trim().length < 3) {
-    ElMessage.warning('建模需求至少需要 3 个字符')
-    return
-  }
+  if (creating.value || running.value) return
+  if (!taskDesc.value.trim()) return ElMessage.warning('请先填写建模需求')
+  if (!datasetId.value) return ElMessage.warning('请先上传 CSV 数据集')
+  if (taskDesc.value.trim().length < 3) return ElMessage.warning('建模需求至少需要 3 个字符')
 
+  artifactText.value = ''
+  predictionResult.value = ''
+  currentReport.value = null
   creating.value = true
   try {
     const task = await createAgentTask({
@@ -378,6 +384,7 @@ const createAndRunTask = async () => {
       hitl: enableHitl.value ? ['all'] : []
     })
     syncTaskState(task)
+    await loadTasks(false)
     ElMessage.success('Agent 任务已创建')
   } catch (error) {
     ElMessage.error(error.message || '任务创建失败')
@@ -386,15 +393,14 @@ const createAndRunTask = async () => {
     creating.value = false
   }
 
-  if (!currentTaskId.value) {
-    ElMessage.error('任务创建成功，但未返回任务 ID')
-    return
-  }
-
   running.value = true
   try {
     const result = await runAgentTask(currentTaskId.value, { offline: runOffline.value })
     syncTaskState(result)
+    await loadTasks(false)
+    if (result?.status === 'COMPLETED') {
+      await loadReport()
+    }
     startPolling()
   } catch (error) {
     ElMessage.error(error.message || '任务启动失败')
@@ -403,49 +409,64 @@ const createAndRunTask = async () => {
   }
 }
 
-const loadTasks = async () => {
+const loadTasks = async (selectLatest = true) => {
+  const startedAt = Date.now()
   loadingTasks.value = true
   try {
     const result = await fetchAgentTasks()
     const list = Array.isArray(result) ? result : result?.list || result?.items || []
-    if (list.length) {
-      syncTaskState(list[0])
+    taskList.value = list
+    if (selectLatest && list.length && !currentTaskId.value) {
+      await selectTask(normalizeTaskId(list[0]))
     }
   } catch (error) {
     ElMessage.error(error.message || '任务列表加载失败')
   } finally {
+    await minSpin(startedAt)
     loadingTasks.value = false
+  }
+}
+
+const selectTask = async (taskId) => {
+  if (!taskId) return
+  try {
+    const task = await fetchAgentTask(taskId)
+    syncTaskState(task)
+    taskDesc.value = task.task_description || ''
+    artifactText.value = ''
+    predictionResult.value = ''
+    currentReport.value = null
+    if (task.dataset_id) {
+      const preview = await fetchDatasetPreview(task.dataset_id)
+      previewRows.value = normalizeRows(preview).slice(0, 8)
+    }
+    if (task.status === 'COMPLETED') {
+      await loadReport()
+    }
+  } catch (error) {
+    ElMessage.error(error.message || '任务详情加载失败')
   }
 }
 
 const loadProgress = async () => {
   if (!currentTaskId.value) return
+  const startedAt = Date.now()
+  loadingProgress.value = true
   try {
     const progress = await fetchAgentProgress(currentTaskId.value)
     syncTaskState(progress)
+    await loadTasks(false)
   } catch (error) {
     ElMessage.error(error.message || '进度加载失败')
-  }
-}
-
-const loadPendingReview = async () => {
-  if (!currentTaskId.value) return
-  try {
-    pendingReview.value = await fetchPendingReview(currentTaskId.value)
-    if (pendingReview.value) {
-      lifecycleStatus.value = 'WAITING_HUMAN'
-    }
-  } catch (error) {
-    ElMessage.error(error.message || '待审核内容加载失败')
+  } finally {
+    await minSpin(startedAt)
+    loadingProgress.value = false
   }
 }
 
 const approveAndResume = async () => {
   if (!currentTaskId.value) return
-  if (lifecycleStatus.value !== 'WAITING_HUMAN') {
-    ElMessage.warning('当前任务没有处于待审核状态')
-    return
-  }
+  if (lifecycleStatus.value !== 'WAITING_HUMAN') return ElMessage.warning('当前任务没有处于待审核状态')
   reviewing.value = true
   try {
     await submitAgentReview(currentTaskId.value, {
@@ -456,7 +477,6 @@ const approveAndResume = async () => {
     })
     const result = await resumeAgentTask(currentTaskId.value, { offline: runOffline.value })
     syncTaskState(result)
-    pendingReview.value = null
     startPolling()
     ElMessage.success('已通过审核并恢复执行')
   } catch (error) {
@@ -470,7 +490,9 @@ const loadReport = async () => {
   if (!currentTaskId.value) return
   try {
     const report = await fetchAgentReport(currentTaskId.value)
-    artifactText.value = typeof report === 'string' ? report : JSON.stringify(report, null, 2)
+    currentReport.value = report
+    artifactText.value = JSON.stringify(report, null, 2)
+    if (!predictionText.value.trim()) fillPredictionSample()
   } catch (error) {
     ElMessage.error(error.message || '报告加载失败')
   }
@@ -480,9 +502,44 @@ const loadCode = async () => {
   if (!currentTaskId.value) return
   try {
     const code = await fetchAgentCode(currentTaskId.value)
-    artifactText.value = typeof code === 'string' ? code : code?.code || JSON.stringify(code, null, 2)
+    artifactText.value =
+      typeof code === 'string' ? code : code?.python_code || code?.code || JSON.stringify(code, null, 2)
   } catch (error) {
     ElMessage.error(error.message || '代码加载失败')
+  }
+}
+
+const fillPredictionSample = () => {
+  const row = previewRows.value[0] || {}
+  const target = currentReport.value?.target_column || currentTask.value?.target_column
+  const featureColumns = currentReport.value?.feature_columns || Object.keys(row).filter((key) => key !== target)
+  const sample = {}
+  featureColumns.forEach((column) => {
+    if (row[column] !== undefined) sample[column] = row[column]
+  })
+  predictionText.value = JSON.stringify(sample, null, 2)
+}
+
+const runPrediction = async () => {
+  if (!currentTaskId.value) return ElMessage.warning('请先选择任务')
+  if (lifecycleStatus.value !== 'COMPLETED') return ElMessage.warning('任务完成后才能预测')
+  let features
+  try {
+    features = JSON.parse(predictionText.value)
+  } catch {
+    return ElMessage.error('预测输入必须是合法 JSON')
+  }
+  if (!features || Array.isArray(features) || typeof features !== 'object') {
+    return ElMessage.error('预测输入必须是单条样本对象')
+  }
+  predicting.value = true
+  try {
+    const result = await predictAgentTask(currentTaskId.value, { features })
+    predictionResult.value = JSON.stringify(result, null, 2)
+  } catch (error) {
+    ElMessage.error(error.message || '预测失败')
+  } finally {
+    predicting.value = false
   }
 }
 
@@ -491,6 +548,7 @@ const startPolling = () => {
   pollTimer = setInterval(async () => {
     if (!currentTaskId.value || ['COMPLETED', 'FAILED', 'CANCELLED', 'WAITING_HUMAN'].includes(lifecycleStatus.value)) {
       clearInterval(pollTimer)
+      if (lifecycleStatus.value === 'COMPLETED') await loadReport()
       return
     }
     await loadProgress()
@@ -507,215 +565,425 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.agent-workbench {
-  gap: 18px;
+.agent-console {
+  height: calc(100vh - 76px);
+  min-height: 720px;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 0;
 }
 
-.head-actions {
+.task-rail {
+  min-width: 0;
+  padding: 18px 16px 18px 0;
+  border-right: 1px solid #242424;
+}
+
+.rail-head {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.new-task-button,
+.icon-button,
+.task-item {
+  border: 0;
+  color: #f4f4f4;
+  background: transparent;
+  cursor: pointer;
+}
+
+.new-task-button {
+  flex: 1;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border-radius: 13px;
+  background: #2f2f2f;
+  font-weight: 650;
+}
+
+.new-task-button:hover,
+.icon-button:hover,
+.task-item:hover {
+  background: #333333;
+  transform: translateY(-1px);
+}
+
+.icon-button {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: #242424;
+  transition:
+    transform 0.16s ease,
+    background-color 0.16s ease;
+}
+
+.spinning :deep(svg),
+.spinning svg {
+  animation: spin 0.85s linear infinite;
+}
+
+.rail-label {
+  margin: 0 0 10px 4px;
+  color: #8c8c8c;
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.task-list {
+  display: grid;
+  gap: 6px;
+  max-height: calc(100vh - 210px);
+  overflow: auto;
+}
+
+.task-item {
+  width: 100%;
+  min-height: 62px;
+  padding: 10px 12px;
+  border-radius: 13px;
+  text-align: left;
+}
+
+.task-item.active {
+  background: #343434;
+}
+
+.task-title {
+  display: -webkit-box;
+  color: #f4f4f4;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.task-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+  color: #a8a8a8;
+  font-size: 12px;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #777777;
+}
+
+.status-dot.COMPLETED {
+  background: var(--zs-success);
+}
+
+.status-dot.WAITING_HUMAN {
+  background: var(--zs-warning);
+}
+
+.status-dot.FAILED {
+  background: var(--zs-danger);
+}
+
+.rail-empty {
+  padding: 18px 8px;
+  color: #8a8a8a;
+  font-size: 13px;
+}
+
+.agent-main {
+  min-width: 0;
+  padding: 30px 42px;
+  overflow: auto;
+}
+
+.agent-main :deep(.el-textarea .el-input__count) {
+  background: transparent;
+  color: #9a9a9a;
+}
+
+.hero-line {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 10px auto 24px;
+  max-width: 1080px;
+}
+
+.run-mode {
   display: flex;
   align-items: center;
   gap: 10px;
+  color: #b4b4b4;
+  font-size: 13px;
 }
 
-.workbench-grid {
+.composer-card,
+.workflow-panel,
+.data-panel,
+.inspector-card {
+  border: 1px solid #343434;
+  border-radius: 24px;
+  background: #1f1f1f;
+}
+
+.composer-card,
+.workflow-panel,
+.data-panel,
+.inspector-card,
+.status-card,
+.task-item {
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.composer-card:hover,
+.workflow-panel:hover,
+.data-panel:hover,
+.inspector-card:hover,
+.status-card:hover {
+  border-color: #4a4a4a;
+}
+
+.composer-card {
+  max-width: 1080px;
+  margin: 0 auto 18px;
+  padding: 18px;
+  box-shadow: var(--zs-shadow);
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.composer-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-strip {
+  max-width: 1080px;
+  margin: 0 auto 18px;
   display: grid;
-  grid-template-columns: minmax(280px, 0.9fr) minmax(360px, 1.35fr) minmax(260px, 0.8fr);
-  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
 }
 
-.detail-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 16px;
+.status-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #343434;
+  border-radius: 16px;
+  background: #181818;
 }
 
-.card-head {
+.status-card span {
+  display: block;
+  color: #9a9a9a;
+  font-size: 12px;
+}
+
+.status-card strong {
+  display: block;
+  margin-top: 7px;
+  color: #f4f4f4;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.workflow-panel,
+.data-panel {
+  max-width: 1080px;
+  margin: 0 auto 18px;
+  padding: 18px;
+}
+
+.panel-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  margin-bottom: 14px;
 }
 
-.card-title {
-  color: var(--zs-text);
+.panel-head.compact {
+  margin-bottom: 12px;
+}
+
+.panel-title {
+  color: #f4f4f4;
   font-size: 15px;
-  font-weight: 680;
+  font-weight: 760;
 }
 
-.card-subtitle {
+.panel-subtitle {
   margin-top: 4px;
-  color: var(--zs-muted);
+  color: #a8a8a8;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
-.upload-icon {
-  color: var(--zs-muted);
-  font-size: 28px;
-}
-
-.upload-tip {
-  color: var(--zs-muted);
-  font-size: 12px;
-}
-
-.hitl-row {
+.panel-actions,
+.artifact-actions,
+.predict-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 2px 0 16px;
-  color: var(--zs-muted);
-}
-
-.full-button {
-  width: 100%;
 }
 
 .stage-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  gap: 8px;
 }
 
 .stage-item {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) 58px;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   padding: 12px;
-  border: 1px solid var(--zs-border);
-  border-radius: var(--zs-radius);
-  background: var(--zs-surface-soft);
+  border: 1px solid #343434;
+  border-radius: 16px;
+  background: #171717;
 }
 
 .stage-item.done {
-  border-color: rgba(21, 128, 61, 0.22);
-  background: rgba(21, 128, 61, 0.045);
+  border-color: rgba(125, 211, 167, 0.32);
 }
 
 .stage-item.running {
-  border-color: rgba(15, 118, 110, 0.32);
-  background: var(--zs-accent-weak);
+  border-color: #777777;
+  background: #242424;
 }
 
 .stage-item.failed {
-  border-color: rgba(185, 28, 28, 0.26);
-  background: rgba(185, 28, 28, 0.045);
+  border-color: rgba(255, 138, 138, 0.5);
 }
 
 .stage-icon {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  color: var(--zs-text);
-  background: var(--zs-surface);
-  border: 1px solid var(--zs-border);
+  border-radius: 12px;
+  color: #f4f4f4;
+  background: #2b2b2b;
 }
 
 .stage-title {
-  color: var(--zs-text);
-  font-weight: 650;
+  color: #f4f4f4;
+  font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
-.stage-desc {
-  margin-top: 3px;
-  color: var(--zs-muted);
+.stage-desc,
+.stage-state {
+  color: #a8a8a8;
   font-size: 12px;
-  line-height: 1.45;
 }
 
 .stage-state {
-  color: var(--zs-muted);
-  font-size: 12px;
+  min-width: 58px;
   text-align: right;
 }
 
-.empty-state {
-  min-height: 160px;
+.empty-panel {
+  min-height: 180px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: var(--zs-muted);
-  text-align: center;
+  color: #8f8f8f;
 }
 
-.empty-state :deep(.el-icon) {
-  font-size: 24px;
+.inspector-card {
+  max-width: 1080px;
+  margin: 0 auto 18px;
+  padding: 16px;
 }
 
-.empty-state.compact {
-  min-height: 180px;
-}
-
-.task-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.summary-line {
-  display: flex;
+.predict-actions {
   justify-content: space-between;
-  gap: 12px;
-  color: var(--zs-muted);
-  font-size: 13px;
+  margin-top: 12px;
 }
 
-.summary-line strong {
-  color: var(--zs-text);
-  font-weight: 650;
-}
-
-.review-alert {
-  margin: 4px 0;
-}
-
-.button-stack {
-  display: grid;
-  gap: 9px;
-}
-
-.artifact-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
+.result-box,
 .artifact-box {
-  min-height: 260px;
-}
-
-.artifact-box pre {
-  height: 260px;
-  margin: 0;
+  width: 100%;
+  margin: 12px 0 0;
   padding: 14px;
   overflow: auto;
-  border-radius: var(--zs-radius);
-  background: var(--zs-code);
-  color: #f5f5f4;
+  border: 1px solid #343434;
+  border-radius: 16px;
+  color: #e8e8e8;
+  background: #101010;
   font-size: 12px;
   line-height: 1.6;
 }
 
+.result-box {
+  max-height: 220px;
+}
+
+.artifact-box {
+  height: 360px;
+}
+
 @media (max-width: 1180px) {
-  .workbench-grid {
-    grid-template-columns: 1fr 1fr;
+  .agent-console {
+    height: auto;
+    grid-template-columns: 1fr;
   }
 
-  .side-card {
-    grid-column: 1 / -1;
+  .task-rail,
+  .inspector {
+    border: 0;
+    padding: 18px 0;
+  }
+
+  .task-list {
+    max-height: 260px;
   }
 }
 
-@media (max-width: 760px) {
-  .workbench-grid,
-  .detail-grid {
-    grid-template-columns: 1fr;
+@media (max-width: 720px) {
+  .agent-main {
+    padding: 22px 0;
+  }
+
+  .hero-line,
+  .composer-actions,
+  .panel-head {
+    flex-direction: column;
+  }
+
+  .status-strip {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 </style>

@@ -7,45 +7,59 @@
         <div class="brand-mark">
           <el-icon><Connection /></el-icon>
         </div>
-        <div>
-          <div class="brand-name">智算 AI4ML</div>
-          <div class="brand-sub">Agent Studio</div>
+        <div class="brand-copy">
+          <div class="brand-name">智算</div>
+          <div class="brand-sub">AI4ML Agent</div>
         </div>
       </div>
 
-      <el-menu
-        :default-active="activeIndex"
-        class="app-menu"
-        @select="(idx) => (activeIndex = idx)"
-      >
-        <el-menu-item index="1">
-          <el-icon><Compass /></el-icon>
-          <span>智能建模</span>
+      <el-menu :default-active="activeIndex" class="app-menu" @select="(idx) => (activeIndex = idx)">
+        <el-menu-item index="1" title="任务中心">
+          <span class="nav-icon">
+            <el-icon><EditPen /></el-icon>
+          </span>
+          <span class="nav-text">任务</span>
         </el-menu-item>
 
-        <el-menu-item index="2" v-if="['ADMIN', 'DEVELOPER'].includes(userStore.role)">
-          <el-icon><DocumentChecked /></el-icon>
-          <span>人工审核</span>
+        <el-menu-item index="2" v-if="['ADMIN', 'DEVELOPER'].includes(userStore.role)" title="人工审核">
+          <span class="nav-icon">
+            <el-icon><DocumentChecked /></el-icon>
+          </span>
+          <span class="nav-text">审核</span>
         </el-menu-item>
 
-        <el-menu-item index="3" v-if="userStore.role === 'ADMIN'">
-          <el-icon><Monitor /></el-icon>
-          <span>管理控制台</span>
+        <el-menu-item index="3" v-if="userStore.role === 'ADMIN'" title="管理控制台">
+          <span class="nav-icon">
+            <el-icon><Monitor /></el-icon>
+          </span>
+          <span class="nav-text">运营</span>
         </el-menu-item>
 
-        <el-menu-item index="4" v-if="userStore.role === 'ADMIN'">
-          <el-icon><User /></el-icon>
-          <span>用户管理</span>
+        <el-menu-item index="4" v-if="userStore.role === 'ADMIN'" title="用户管理">
+          <span class="nav-icon">
+            <el-icon><User /></el-icon>
+          </span>
+          <span class="nav-text">用户</span>
         </el-menu-item>
       </el-menu>
 
-      <div class="sidebar-foot">
-        <div class="status-dot"></div>
-        <div>
-          <div class="foot-title">Backend</div>
-          <div class="foot-text">127.0.0.1:8000</div>
+      <div class="sidebar-section">
+        <el-tooltip placement="right" :content="`${userStore.name} · ${roleLabel}`">
+        <div class="identity-card">
+          <div class="user-avatar">
+            <el-icon><UserFilled /></el-icon>
+          </div>
+          <div class="identity-copy">
+            <div class="identity-name">{{ userStore.name }}</div>
+            <div class="identity-role">{{ roleLabel }}</div>
+          </div>
         </div>
+        </el-tooltip>
       </div>
+
+      <button class="logout-button" title="退出登录" @click="userStore.logout">
+        <el-icon><SwitchButton /></el-icon>
+      </button>
     </aside>
 
     <main class="app-main">
@@ -54,18 +68,8 @@
           <div class="header-kicker">{{ currentSection.kicker }}</div>
           <h1>{{ currentSection.title }}</h1>
         </div>
-        <div class="user-strip">
-          <div class="user-avatar">
-            <el-icon><UserFilled /></el-icon>
-          </div>
-          <div class="user-meta">
-            <div class="user-name">{{ userStore.name }}</div>
-            <div class="user-role">{{ roleLabel }}</div>
-          </div>
-          <el-button plain size="small" @click="userStore.logout">
-            <el-icon><SwitchButton /></el-icon>
-            退出
-          </el-button>
+        <div class="header-actions">
+          <el-tag effect="plain">{{ roleLabel }}</el-tag>
         </div>
       </header>
 
@@ -98,10 +102,10 @@ const roleMap = {
 }
 
 const sectionMap = {
-  1: { kicker: 'Multi-Agent Modeling', title: '智能建模工作台' },
-  2: { kicker: 'Human in the loop', title: '人工审核与协同优化' },
-  3: { kicker: 'Operations', title: '平台运营控制台' },
-  4: { kicker: 'Identity', title: '用户与权限管理' }
+  1: { kicker: 'Agent 工作台', title: '和建模 Agent 开始一次任务' },
+  2: { kicker: 'Human review', title: '审核后继续工作流' },
+  3: { kicker: '运营管理', title: '平台控制台' },
+  4: { kicker: '身份权限', title: '用户与角色管理' }
 }
 
 const roleLabel = computed(() => roleMap[userStore.role] || userStore.role || '用户')
@@ -110,13 +114,7 @@ const currentSection = computed(() => sectionMap[activeIndex.value] || sectionMa
 watch(
   () => userStore.role,
   (newRole) => {
-    if (newRole === 'ADMIN') {
-      activeIndex.value = '3'
-    } else if (newRole === 'DEVELOPER') {
-      activeIndex.value = '1'
-    } else {
-      activeIndex.value = '1'
-    }
+    activeIndex.value = newRole === 'ADMIN' ? '3' : '1'
   },
   { immediate: true }
 )
@@ -126,29 +124,40 @@ watch(
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 252px minmax(0, 1fr);
-  background:
-    radial-gradient(circle at 20% 0%, rgba(15, 118, 110, 0.08), transparent 28%),
-    var(--zs-bg);
+  grid-template-columns: 76px minmax(0, 1fr);
+  background: var(--zs-bg);
+  color: var(--zs-text);
 }
 
 .app-sidebar {
   position: sticky;
   top: 0;
   height: 100vh;
-  padding: 22px 16px;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--zs-border);
-  background: rgba(255, 255, 255, 0.74);
-  backdrop-filter: blur(22px);
+  gap: 18px;
+  padding: 18px 10px;
+  border-right: 1px solid #242424;
+  background: var(--zs-sidebar);
+  z-index: 10;
+  overflow: hidden;
+  width: 76px;
+  transition:
+    width 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.app-sidebar:hover {
+  width: 220px;
+  box-shadow: 18px 0 42px rgba(0, 0, 0, 0.3);
 }
 
 .brand {
+  justify-content: flex-start;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 4px 8px 22px;
+  padding: 4px 0 12px;
 }
 
 .brand-mark,
@@ -158,24 +167,45 @@ watch(
   justify-content: center;
   color: var(--zs-text);
   border: 1px solid var(--zs-border);
-  background: var(--zs-surface);
+  background: #101010;
 }
 
 .brand-mark {
-  width: 38px;
-  height: 38px;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
   border-radius: 10px;
+  margin-left: 10px;
 }
 
-.brand-name {
-  color: var(--zs-text);
-  font-size: 15px;
-  font-weight: 700;
+.brand-copy,
+.identity-copy {
+  min-width: 0;
+  opacity: 0;
+  transform: translateX(-6px);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+  white-space: nowrap;
 }
 
-.brand-sub {
+.app-sidebar:hover .brand-copy,
+.app-sidebar:hover .identity-copy {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.brand-name,
+.identity-name {
+  color: #f4f4f4;
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.brand-sub,
+.identity-role {
   margin-top: 2px;
-  color: var(--zs-muted);
+  color: #9f9f9f;
   font-size: 12px;
 }
 
@@ -186,61 +216,136 @@ watch(
 }
 
 .app-menu :deep(.el-menu-item) {
-  height: 42px;
-  margin: 4px 0;
-  border-radius: 8px;
-  color: var(--zs-muted);
-  font-weight: 560;
+  width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 2px 0;
+  padding: 0 !important;
+  border-radius: 16px;
+  color: #d7d7d7;
+  font-size: 14px;
+  font-weight: 620;
+  position: relative;
+  transition:
+    background-color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.app-menu :deep(.el-menu-item .el-icon) {
+  margin-right: 0;
+  font-size: 20px;
+}
+
+.nav-icon {
+  flex: 0 0 54px;
+  width: 54px;
+  height: 54px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-text {
+  margin-left: 0;
+  color: #f4f4f4;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-6px);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+  white-space: nowrap;
+}
+
+.app-sidebar:hover .app-menu :deep(.el-menu-item) {
+  width: 100%;
+  justify-content: flex-start;
+  padding: 0 !important;
+}
+
+.app-sidebar:hover .nav-text {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.app-menu :deep(.el-menu-item:hover) {
+  background: #242424;
+  transform: translateY(-1px);
 }
 
 .app-menu :deep(.el-menu-item.is-active) {
-  color: var(--zs-text);
-  background: var(--zs-surface);
-  box-shadow: 0 1px 0 var(--zs-border);
+  color: #ffffff;
+  background: #303030;
 }
 
-.sidebar-foot {
+.sidebar-section {
+  padding: 0;
+}
+
+.identity-card {
+  justify-content: flex-start;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--zs-border);
-  border-radius: var(--zs-radius);
-  background: var(--zs-surface-soft);
+  padding: 8px;
+  border-radius: 14px;
+  background: #202020;
+  transition:
+    background-color 0.16s ease,
+    transform 0.16s ease;
 }
 
-.status-dot {
-  width: 8px;
-  height: 8px;
+.identity-card:hover {
+  background: #303030;
+  transform: translateY(-1px);
+}
+
+.user-avatar {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
   border-radius: 999px;
-  background: var(--zs-accent);
-  box-shadow: 0 0 0 4px var(--zs-accent-weak);
 }
 
-.foot-title {
-  color: var(--zs-text);
-  font-size: 12px;
-  font-weight: 650;
+.logout-button {
+  width: 54px;
+  height: 54px;
+  justify-content: center;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  color: #d9d9d9;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    transform 0.16s ease;
 }
 
-.foot-text {
-  margin-top: 2px;
-  color: var(--zs-muted);
-  font-size: 12px;
+.logout-button:hover {
+  background: #242424;
+  transform: translateY(-1px);
 }
 
 .app-main {
   min-width: 0;
-  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  padding: 0 26px 22px;
 }
 
 .app-header {
-  min-height: 68px;
+  min-height: 76px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  margin-bottom: 18px;
+  border-bottom: 1px solid #242424;
 }
 
 .header-kicker {
@@ -250,48 +355,17 @@ watch(
 }
 
 .app-header h1 {
-  margin: 5px 0 0;
+  margin: 4px 0 0;
   color: var(--zs-text);
-  font-size: 24px;
-  font-weight: 680;
-  line-height: 1.2;
-}
-
-.user-strip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px;
-  border: 1px solid var(--zs-border);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.8);
-}
-
-.user-avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-}
-
-.user-meta {
-  min-width: 96px;
-}
-
-.user-name {
-  color: var(--zs-text);
-  font-size: 13px;
-  font-weight: 650;
-  line-height: 1.2;
-}
-
-.user-role {
-  margin-top: 2px;
-  color: var(--zs-muted);
-  font-size: 12px;
+  font-size: 22px;
+  font-weight: 760;
+  line-height: 1.25;
+  letter-spacing: 0;
 }
 
 .content-surface {
-  min-height: calc(100vh - 110px);
+  flex: 1;
+  min-height: 0;
 }
 
 @media (max-width: 920px) {
@@ -302,46 +376,16 @@ watch(
   .app-sidebar {
     position: relative;
     height: auto;
-    padding: 14px;
-  }
-
-  .brand {
-    padding-bottom: 10px;
   }
 
   .app-menu {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    flex-direction: row;
     gap: 6px;
   }
 
-  .app-menu :deep(.el-menu-item) {
-    margin: 0;
-  }
-
-  .sidebar-foot {
-    display: none;
-  }
-
   .app-main {
-    padding: 14px;
-  }
-}
-
-@media (max-width: 640px) {
-  .app-header,
-  .user-strip {
-    align-items: flex-start;
-    flex-direction: column;
-    border-radius: var(--zs-radius);
-  }
-
-  .user-strip {
-    width: 100%;
-  }
-
-  .app-menu {
-    grid-template-columns: 1fr;
+    padding: 0 14px 14px;
   }
 }
 </style>
