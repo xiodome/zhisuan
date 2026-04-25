@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="user-management">
     <el-row :gutter="20" style="margin-bottom: 20px;">
       <el-col :span="8">
         <el-card shadow="hover">
@@ -405,6 +405,10 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.user-management {
+  width: 100%;
+}
+
 .header-row {
   display: flex;
   justify-content: space-between;
@@ -436,11 +440,11 @@ onMounted(() => {
 
 .username {
   font-weight: 600;
-  color: #303133;
+  color: var(--zs-text);
 }
 
 .display-name {
-  color: #909399;
+  color: var(--zs-muted);
   font-size: 13px;
   margin-top: 2px;
 }
@@ -452,7 +456,7 @@ onMounted(() => {
 }
 
 .meta-text {
-  color: #606266;
+  color: var(--zs-muted);
   font-size: 13px;
   margin-bottom: 6px;
   word-break: break-word;
@@ -470,5 +474,18 @@ onMounted(() => {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+}
+
+:deep(.el-row:first-child .el-card__body) {
+  min-height: 100px;
+}
+
+:deep(.el-row:first-child .el-card__body > div:first-child) {
+  color: var(--zs-muted) !important;
+  font-size: 13px !important;
+}
+
+:deep(.el-row:first-child .el-card__body > div:nth-child(2)) {
+  color: var(--zs-text) !important;
 }
 </style>

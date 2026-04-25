@@ -1,8 +1,29 @@
 <template>
   <div class="login-container">
-    <el-card class="login-card" shadow="always">
+    <section class="login-copy">
+      <div class="brand-row">
+        <div class="brand-mark">
+          <el-icon><Connection /></el-icon>
+        </div>
+        <span>智算 AI4ML</span>
+      </div>
+      <h1>把机器学习流程交给 Agent，把判断权留给人。</h1>
+      <p>
+        面向自然语言建模、人工审核、代码沉淀和工作流复用的低代码机器学习社区平台。
+      </p>
+      <div class="login-points">
+        <div><el-icon><Compass /></el-icon><span>自然语言创建建模任务</span></div>
+        <div><el-icon><DocumentChecked /></el-icon><span>关键节点人工确认</span></div>
+        <div><el-icon><DataAnalysis /></el-icon><span>报告、代码与模型产物沉淀</span></div>
+      </div>
+    </section>
+
+    <el-card class="login-card" shadow="never">
       <template #header>
-        <h2 class="title">智算 AI4ML 社区</h2>
+        <div>
+          <h2 class="title">进入工作台</h2>
+          <p class="subtitle">使用你的课程平台账号继续。</p>
+        </div>
       </template>
 
       <el-tabs v-model="activeTab" stretch>
@@ -94,21 +115,109 @@ const handleRegister = async () => {
 
 <style scoped>
 .login-container {
-  height: 100vh;
+  min-height: 100vh;
   display: flex;
+  gap: 64px;
   justify-content: center;
   align-items: center;
-  background: #2d3a4b;
+  padding: 32px;
+  background:
+    radial-gradient(circle at 18% 18%, rgba(15, 118, 110, 0.09), transparent 32%),
+    var(--zs-bg);
 }
+
+.login-copy {
+  width: min(520px, 100%);
+}
+
+.brand-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--zs-text);
+  font-weight: 700;
+}
+
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--zs-border);
+  border-radius: 10px;
+  background: var(--zs-surface);
+}
+
+.login-copy h1 {
+  margin: 34px 0 0;
+  color: var(--zs-text);
+  font-size: 48px;
+  font-weight: 680;
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+
+.login-copy p {
+  margin: 22px 0 0;
+  color: var(--zs-muted);
+  font-size: 16px;
+  line-height: 1.8;
+}
+
+.login-points {
+  display: grid;
+  gap: 12px;
+  margin-top: 34px;
+}
+
+.login-points div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--zs-text);
+  font-size: 14px;
+}
+
+.login-points .el-icon {
+  color: var(--zs-accent);
+}
+
 .login-card {
   width: 420px;
-  border-radius: 12px;
+  flex: 0 0 420px;
 }
+
 .title {
-  text-align: center;
   margin: 0;
-  color: #409EFF;
+  color: var(--zs-text);
+  font-size: 22px;
+  font-weight: 680;
 }
+
+.subtitle {
+  margin: 7px 0 0;
+  color: var(--zs-muted);
+  font-size: 13px;
+}
+
 .mt-20 { margin-top: 20px; }
 .full-width { width: 100%; }
+
+@media (max-width: 920px) {
+  .login-container {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 28px;
+  }
+
+  .login-copy h1 {
+    font-size: 34px;
+  }
+
+  .login-card {
+    width: 100%;
+    flex: none;
+  }
+}
 </style>
