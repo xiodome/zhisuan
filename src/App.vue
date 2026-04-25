@@ -21,13 +21,6 @@
           <span class="nav-text">任务</span>
         </el-menu-item>
 
-        <el-menu-item index="2" v-if="['ADMIN', 'DEVELOPER'].includes(userStore.role)" title="人工审核">
-          <span class="nav-icon">
-            <el-icon><DocumentChecked /></el-icon>
-          </span>
-          <span class="nav-text">审核</span>
-        </el-menu-item>
-
         <el-menu-item index="3" v-if="userStore.role === 'ADMIN'" title="管理控制台">
           <span class="nav-icon">
             <el-icon><Monitor /></el-icon>
@@ -75,7 +68,6 @@
 
       <section class="content-surface">
         <TaskCenter v-if="activeIndex === '1'" />
-        <DeveloperCollab v-if="activeIndex === '2'" />
         <AdminConsole v-if="activeIndex === '3'" />
         <AdminUserManagement v-if="activeIndex === '4'" />
       </section>
@@ -88,7 +80,6 @@ import { computed, ref, watch } from 'vue'
 import { useUserStore } from './store/user'
 import Login from './components/Login.vue'
 import TaskCenter from './components/TaskCenter.vue'
-import DeveloperCollab from './components/DeveloperCollab.vue'
 import AdminConsole from './components/AdminConsole.vue'
 import AdminUserManagement from './components/AdminUserManagement.vue'
 
@@ -103,7 +94,6 @@ const roleMap = {
 
 const sectionMap = {
   1: { kicker: 'Agent 工作台', title: '和建模 Agent 开始一次任务' },
-  2: { kicker: 'Human review', title: '审核后继续工作流' },
   3: { kicker: '运营管理', title: '平台控制台' },
   4: { kicker: '身份权限', title: '用户与角色管理' }
 }
@@ -114,7 +104,9 @@ const currentSection = computed(() => sectionMap[activeIndex.value] || sectionMa
 watch(
   () => userStore.role,
   (newRole) => {
-    activeIndex.value = newRole === 'ADMIN' ? '3' : '1'
+    if (newRole !== 'ADMIN' && ['3', '4'].includes(activeIndex.value)) {
+      activeIndex.value = '1'
+    }
   },
   { immediate: true }
 )
@@ -220,7 +212,7 @@ watch(
   height: 54px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   margin: 2px 0;
   padding: 0 !important;
   border-radius: 16px;
@@ -228,6 +220,7 @@ watch(
   font-size: 14px;
   font-weight: 620;
   position: relative;
+  overflow: hidden;
   transition:
     background-color 0.16s ease,
     transform 0.16s ease;
@@ -247,7 +240,14 @@ watch(
   justify-content: center;
 }
 
+.nav-icon .el-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .nav-text {
+  flex: 0 0 auto;
   margin-left: 0;
   color: #f4f4f4;
   opacity: 0;
