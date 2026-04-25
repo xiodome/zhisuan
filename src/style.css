@@ -377,6 +377,25 @@ select {
   border-radius: 999px !important;
 }
 
+.el-tag.el-tag--danger,
+.el-tag.el-tag--success,
+.el-tag.el-tag--info,
+.el-tag.el-tag--warning,
+.el-tag.el-tag--primary {
+  --el-tag-bg-color: #242424;
+  --el-tag-border-color: var(--zs-border-strong);
+  --el-tag-text-color: var(--zs-text);
+  background: #242424 !important;
+  border-color: var(--zs-border-strong) !important;
+  color: var(--zs-text) !important;
+}
+
+.el-tag.el-tag--dark {
+  --el-tag-bg-color: #303030;
+  --el-tag-border-color: var(--zs-border-strong);
+  --el-tag-text-color: var(--zs-text);
+}
+
 .el-upload-dragger {
   border-radius: var(--zs-radius) !important;
   border-color: var(--zs-border-strong) !important;
