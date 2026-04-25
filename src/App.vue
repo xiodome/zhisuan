@@ -56,16 +56,6 @@
     </aside>
 
     <main class="app-main">
-      <header class="app-header">
-        <div>
-          <div class="header-kicker">{{ currentSection.kicker }}</div>
-          <h1>{{ currentSection.title }}</h1>
-        </div>
-        <div class="header-actions">
-          <el-tag effect="plain">{{ roleLabel }}</el-tag>
-        </div>
-      </header>
-
       <section class="content-surface">
         <TaskCenter v-if="activeIndex === '1'" />
         <AdminConsole v-if="activeIndex === '3'" />
@@ -92,14 +82,7 @@ const roleMap = {
   ZERO_BASIS: '零基础用户'
 }
 
-const sectionMap = {
-  1: { kicker: 'Agent 工作台', title: '和建模 Agent 开始一次任务' },
-  3: { kicker: '运营管理', title: '平台控制台' },
-  4: { kicker: '身份权限', title: '用户与角色管理' }
-}
-
 const roleLabel = computed(() => roleMap[userStore.role] || userStore.role || '用户')
-const currentSection = computed(() => sectionMap[activeIndex.value] || sectionMap[1])
 
 watch(
   () => userStore.role,
@@ -114,11 +97,12 @@ watch(
 
 <style scoped>
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr);
   background: var(--zs-bg);
   color: var(--zs-text);
+  overflow: hidden;
 }
 
 .app-sidebar {
@@ -334,38 +318,18 @@ watch(
 
 .app-main {
   min-width: 0;
+  min-height: 0;
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 0 26px 22px;
-}
-
-.app-header {
-  min-height: 76px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  border-bottom: 1px solid #242424;
-}
-
-.header-kicker {
-  color: var(--zs-muted);
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.app-header h1 {
-  margin: 4px 0 0;
-  color: var(--zs-text);
-  font-size: 22px;
-  font-weight: 760;
-  line-height: 1.25;
-  letter-spacing: 0;
+  padding: 0 26px;
+  overflow: hidden;
 }
 
 .content-surface {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 @media (max-width: 920px) {

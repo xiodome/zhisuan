@@ -46,6 +46,32 @@ body {
   overflow-x: hidden;
 }
 
+* {
+  scrollbar-color: #5a5a5a transparent;
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background-color: #5a5a5a;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #747474;
+}
+
 button,
 input,
 textarea,
@@ -286,6 +312,20 @@ select {
 
 .el-dialog__footer {
   padding: 0 30px 26px !important;
+}
+
+.el-loading-mask {
+  background-color: rgba(31, 31, 31, 0.78) !important;
+  backdrop-filter: blur(4px);
+  border-radius: inherit;
+}
+
+.el-loading-spinner .path {
+  stroke: var(--zs-text) !important;
+}
+
+.el-loading-spinner .el-loading-text {
+  color: var(--zs-text) !important;
 }
 
 .el-table {

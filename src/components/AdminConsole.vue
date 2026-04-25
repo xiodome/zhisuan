@@ -1269,6 +1269,9 @@ onMounted(async () => {
 <style scoped>
 .admin-console {
   width: 100%;
+  height: 100vh;
+  padding: 24px 0;
+  overflow: auto;
 }
 
 .mock-alert {

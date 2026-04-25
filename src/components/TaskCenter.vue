@@ -32,18 +32,6 @@
       </section>
 
       <template v-else>
-        <section class="hero-line">
-          <div>
-            <p class="zs-eyebrow">AI4ML Agent</p>
-            <h2 class="zs-title">{{ currentTask?.task_description || '任务详情' }}</h2>
-            <p class="zs-subtitle">查看当前任务状态，运行工作流，并在需要 HITL 的节点完成审核。</p>
-          </div>
-          <div class="run-mode">
-            <span>Mode</span>
-            <el-switch v-model="runOffline" inline-prompt active-text="离线" inactive-text="LLM" />
-          </div>
-        </section>
-
         <section class="status-strip">
           <div class="status-card">
             <span>当前任务</span>
@@ -70,6 +58,10 @@
               <div class="panel-subtitle">{{ currentTask?.task_description || '暂无描述' }}</div>
             </div>
             <div class="panel-actions">
+              <div class="run-mode">
+                <span>Mode</span>
+                <el-switch v-model="runOffline" inline-prompt active-text="离线" inactive-text="LLM" />
+              </div>
               <el-button plain :disabled="!datasetId" @click="openPreviewDialog">
                 <el-icon><Grid /></el-icon>
                 预览数据
@@ -719,14 +711,17 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .agent-console {
-  height: calc(100vh - 76px);
-  min-height: 720px;
+  height: 100vh;
+  min-height: 0;
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
 }
 
 .task-rail {
   min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   padding: 18px 16px 18px 0;
   border-right: 1px solid #242424;
 }
@@ -741,10 +736,10 @@ onBeforeUnmount(() => {
 
 .new-task-button {
   width: 100%;
-  height: 62px;
+  height: 37px;
   position: relative;
-  margin-bottom: 24px;
-  border-radius: 24px;
+  margin-bottom: 18px;
+  border-radius: 16px;
   background: #2f2f2f;
   transition:
     transform 0.16s ease,
@@ -755,8 +750,8 @@ onBeforeUnmount(() => {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 30px;
-  height: 3px;
+  width: 22px;
+  height: 2px;
   border-radius: 999px;
   background: #f4f4f4;
   transform: translate(-50%, -50%);
@@ -780,9 +775,11 @@ onBeforeUnmount(() => {
 }
 
 .task-list {
+  flex: 1;
+  min-height: 0;
   display: grid;
+  align-content: start;
   gap: 6px;
-  max-height: calc(100vh - 210px);
   overflow: auto;
 }
 
@@ -849,6 +846,7 @@ onBeforeUnmount(() => {
 
 .agent-main {
   min-width: 0;
+  min-height: 0;
   padding: 30px 42px;
   overflow: auto;
 }
@@ -881,15 +879,6 @@ onBeforeUnmount(() => {
 .agent-main :deep(.el-textarea .el-input__count) {
   background: transparent;
   color: #9a9a9a;
-}
-
-.hero-line {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-  margin: 10px auto 24px;
-  max-width: 1080px;
 }
 
 .run-mode {
@@ -1128,6 +1117,7 @@ onBeforeUnmount(() => {
 @media (max-width: 1180px) {
   .agent-console {
     height: auto;
+    min-height: 0;
     grid-template-columns: 1fr;
   }
 
@@ -1146,7 +1136,6 @@ onBeforeUnmount(() => {
     padding: 22px 0;
   }
 
-  .hero-line,
   .panel-head {
     flex-direction: column;
   }

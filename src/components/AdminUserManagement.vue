@@ -407,6 +407,9 @@ onMounted(() => {
 <style scoped>
 .user-management {
   width: 100%;
+  height: 100vh;
+  padding: 24px 0;
+  overflow: auto;
 }
 
 .header-row {
