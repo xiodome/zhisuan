@@ -121,23 +121,59 @@
           <div class="panel-head compact">
             <div>
               <div class="panel-title">预测接口</div>
-              <div class="panel-subtitle">任务完成后输入一条样本并调用 `/predict`。</div>
+              <div class="panel-subtitle">导入或手动编辑一组特征值，批量调用 `/predict`，预测值会显示在最右列。</div>
+            </div>
+            <div class="panel-actions">
+              <el-button plain @click="openPredictionJsonDialog">JSON 导入</el-button>
+              <el-button plain :disabled="!predictionRows.length" @click="addPredictionRow">新增行</el-button>
+              <el-button plain :disabled="!predictionRows.length" @click="exportPredictionJson">导出 JSON</el-button>
             </div>
           </div>
 
-          <el-input
-            v-model="predictionText"
-            type="textarea"
-            :rows="8"
-            resize="none"
-            placeholder='{"age": 30, "income": 6500, "city": "A"}'
-          />
+          <div v-if="predictionColumns.length" class="prediction-table-wrap">
+            <el-table :data="pagedPredictionRows" :height="predictionTableHeight">
+              <el-table-column label="#" width="56">
+                <template #default="{ row, $index }">
+                  <button class="row-delete-button" title="删除此行" @click="removePredictionRow(row.id)">
+                    <span class="row-index">{{ (predictionPage - 1) * predictionPageSize + $index + 1 }}</span>
+                    <el-icon class="row-delete-icon"><Close /></el-icon>
+                  </button>
+                </template>
+              </el-table-column>
+              <el-table-column
+                v-for="column in predictionColumns"
+                :key="column"
+                :label="column"
+                min-width="150"
+              >
+                <template #default="{ row }">
+                  <el-input v-model="row.features[column]" placeholder="-" />
+                </template>
+              </el-table-column>
+              <el-table-column label="预测值" min-width="150" fixed="right">
+                <template #default="{ row }">
+                  <span class="prediction-value">{{ formatPredictionValue(row.prediction) }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div class="prediction-footer">
+              <el-pagination
+                background
+                layout="prev, pager, next, jumper, total"
+                :total="predictionRows.length"
+                :page-size="predictionPageSize"
+                :current-page="predictionPage"
+                @current-change="(page) => (predictionPage = page)"
+              />
+            </div>
+          </div>
+          <div v-else class="modal-empty">点击“JSON 导入”或“填入样例”开始批量预测。</div>
 
           <div class="predict-actions">
             <el-button plain :disabled="!currentReport && !previewRows.length" @click="fillPredictionSample">填入样例</el-button>
             <el-button
               type="primary"
-              :disabled="lifecycleStatus !== 'COMPLETED'"
+              :disabled="lifecycleStatus !== 'COMPLETED' || !predictionRows.length"
               :loading="predicting"
               @click="runPrediction"
             >
@@ -145,8 +181,6 @@
               预测
             </el-button>
           </div>
-
-          <pre v-if="predictionResult" class="result-box">{{ predictionResult }}</pre>
         </section>
 
         <section class="inspector-card">
@@ -269,6 +303,21 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="predictionJsonDialogVisible" title="JSON 导入" width="720px" class="agent-dialog">
+      <el-input
+        v-model="predictionJsonText"
+        type="textarea"
+        :rows="12"
+        resize="none"
+        placeholder='[{"nitrogen": 56.4, "rainfall": 82.9, "temperature": 17.7}]'
+      />
+      <div class="form-hint">仅支持 JSON 对象数组；导入后会覆盖当前预测表格。</div>
+      <template #footer>
+        <el-button plain @click="predictionJsonDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmPredictionJsonImport">确认导入</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -301,8 +350,13 @@ const previewRows = ref([])
 const lifecycleStatus = ref('CREATED')
 const currentStage = ref('')
 const artifactText = ref('')
-const predictionText = ref('')
-const predictionResult = ref('')
+const predictionRows = ref([])
+const predictionPage = ref(1)
+const predictionPageSize = 5
+const predictionRowHeight = 50
+const predictionTableHeaderHeight = 48
+const predictionJsonDialogVisible = ref(false)
+const predictionJsonText = ref('')
 const currentReport = ref(null)
 const runOffline = ref(true)
 const loadingTasks = ref(false)
@@ -369,6 +423,18 @@ const canRunTask = computed(() => ['CREATED', 'READY_TO_RESUME'].includes(lifecy
 const runButtonText = computed(() => (lifecycleStatus.value === 'READY_TO_RESUME' ? '继续运行' : '运行'))
 const formattedReview = computed(() => JSON.stringify(pendingReview.value?.payload || pendingReview.value, null, 2))
 const reviewStageLabel = computed(() => reviewStageTitleMap[pendingReview.value?.review_stage] || pendingReview.value?.review_stage || '-')
+const predictionColumns = computed(() => {
+  const columns = new Set()
+  predictionRows.value.forEach((row) => {
+    Object.keys(row.features || {}).forEach((column) => columns.add(column))
+  })
+  return Array.from(columns)
+})
+const pagedPredictionRows = computed(() => {
+  const start = (predictionPage.value - 1) * predictionPageSize
+  return predictionRows.value.slice(start, start + predictionPageSize)
+})
+const predictionTableHeight = computed(() => predictionTableHeaderHeight + predictionPageSize * predictionRowHeight)
 
 const stages = computed(() => {
   const reviewStage = lifecycleStatus.value === 'WAITING_HUMAN' ? currentStage.value : ''
@@ -401,20 +467,38 @@ const normalizeRows = (preview) => {
   return []
 }
 const normalizeTaskId = (task) => task?.task_id || task?.id || task?.task?.task_id || task?.task?.id
+const mergeDefined = (base, patch) => {
+  const cleaned = Object.fromEntries(
+    Object.entries(patch || {}).filter(([, value]) => value !== undefined && value !== null && value !== '')
+  )
+  return { ...(base || {}), ...cleaned }
+}
+const normalizePredictionRows = (value) => {
+  if (!Array.isArray(value)) throw new Error('JSON 必须是样本对象数组')
+  const rows = value
+  if (!rows.length) throw new Error('JSON 至少需要包含一条样本')
+  return rows.map((row, index) => {
+    if (!row || Array.isArray(row) || typeof row !== 'object') {
+      throw new Error(`第 ${index + 1} 行必须是 JSON 对象`)
+    }
+    const features = {}
+    Object.entries(row).forEach(([key, item]) => {
+      if (key !== 'prediction' && key !== '__prediction') features[key] = item
+    })
+    if (!Object.keys(features).length) throw new Error(`第 ${index + 1} 行没有可预测特征`)
+    return { id: `${Date.now()}_${index}_${Math.random().toString(16).slice(2)}`, features, prediction: row.prediction ?? row.__prediction ?? '' }
+  })
+}
+const formatPredictionValue = (value) => {
+  if (value === undefined || value === null || value === '') return '-'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
 
 const syncTaskState = (task) => {
   if (!task) return
   const nextTaskId = String(normalizeTaskId(task) || currentTaskId.value || '')
-  currentTask.value = {
-    ...(currentTask.value || {}),
-    ...task,
-    task_id: nextTaskId,
-    task_description: task.task_description ?? currentTask.value?.task_description,
-    task_type: task.task_type ?? currentTask.value?.task_type,
-    target_column: task.target_column ?? currentTask.value?.target_column,
-    dataset_id: task.dataset_id ?? currentTask.value?.dataset_id,
-    feature_columns: task.feature_columns ?? currentTask.value?.feature_columns
-  }
+  currentTask.value = mergeDefined(currentTask.value, { ...task, task_id: nextTaskId })
   currentTaskId.value = nextTaskId
   datasetId.value = task.dataset_id || datasetId.value
   lifecycleStatus.value = task.status || task.lifecycle_status || task.task_status || lifecycleStatus.value
@@ -480,8 +564,8 @@ const createTaskOnly = async () => {
     datasetId.value = draftDatasetId.value
     createDialogVisible.value = false
     artifactText.value = ''
-    predictionText.value = ''
-    predictionResult.value = ''
+    predictionRows.value = []
+    predictionPage.value = 1
     currentReport.value = null
     await loadTasks(false, true)
     ElMessage.success('任务已创建')
@@ -496,7 +580,7 @@ const runSelectedTask = async () => {
   if (!currentTaskId.value || running.value) return
   running.value = true
   artifactText.value = ''
-  predictionResult.value = ''
+  predictionRows.value = predictionRows.value.map((row) => ({ ...row, prediction: '' }))
   currentReport.value = null
   try {
     const result =
@@ -541,7 +625,8 @@ const selectTask = async (taskId) => {
     const task = await fetchAgentTask(taskId)
     syncTaskState(task)
     artifactText.value = ''
-    predictionResult.value = ''
+    predictionRows.value = []
+    predictionPage.value = 1
     currentReport.value = null
     pendingReview.value = null
     if (task.dataset_id) {
@@ -636,7 +721,7 @@ const loadReport = async () => {
     const report = await fetchAgentReport(currentTaskId.value)
     currentReport.value = report
     artifactText.value = JSON.stringify(report, null, 2)
-    if (!predictionText.value.trim()) fillPredictionSample()
+    if (!predictionRows.value.length) fillPredictionSample()
   } catch (error) {
     ElMessage.error(error.message || '报告加载失败')
   }
@@ -654,32 +739,83 @@ const loadCode = async () => {
 }
 
 const fillPredictionSample = () => {
-  const row = previewRows.value[0] || {}
+  const rows = previewRows.value.length ? previewRows.value.slice(0, 8) : [{}]
   const target = currentReport.value?.target_column || currentTask.value?.target_column
-  const featureColumns = currentReport.value?.feature_columns || Object.keys(row).filter((key) => key !== target)
-  const sample = {}
-  featureColumns.forEach((column) => {
-    if (row[column] !== undefined) sample[column] = row[column]
+  const fallbackColumns = Object.keys(rows[0] || {}).filter((key) => key !== target)
+  const featureColumns = currentReport.value?.feature_columns || fallbackColumns
+  predictionRows.value = rows.map((row, index) => {
+    const features = {}
+    featureColumns.forEach((column) => {
+      features[column] = row[column] ?? ''
+    })
+    return { id: `sample_${Date.now()}_${index}`, features, prediction: '' }
   })
-  predictionText.value = JSON.stringify(sample, null, 2)
+  predictionPage.value = 1
+}
+
+const openPredictionJsonDialog = () => {
+  const rows = predictionRows.value.map((row) => ({ ...row.features, prediction: row.prediction || undefined }))
+  predictionJsonText.value = rows.length ? JSON.stringify(rows, null, 2) : ''
+  predictionJsonDialogVisible.value = true
+}
+
+const confirmPredictionJsonImport = () => {
+  let parsed
+  try {
+    parsed = JSON.parse(predictionJsonText.value)
+    predictionRows.value = normalizePredictionRows(parsed)
+    predictionPage.value = 1
+    predictionJsonDialogVisible.value = false
+  } catch (error) {
+    ElMessage.error(error.message || 'JSON 格式不正确')
+  }
+}
+
+const addPredictionRow = () => {
+  const features = {}
+  predictionColumns.value.forEach((column) => {
+    features[column] = ''
+  })
+  predictionRows.value.push({ id: `manual_${Date.now()}`, features, prediction: '' })
+  predictionPage.value = Math.ceil(predictionRows.value.length / predictionPageSize)
+}
+
+const removePredictionRow = (rowId) => {
+  predictionRows.value = predictionRows.value.filter((row) => row.id !== rowId)
+  const maxPage = Math.max(1, Math.ceil(predictionRows.value.length / predictionPageSize))
+  if (predictionPage.value > maxPage) predictionPage.value = maxPage
+}
+
+const exportPredictionJson = () => {
+  const rows = predictionRows.value.map((row) => ({ ...row.features, prediction: row.prediction }))
+  const blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${currentTaskId.value || 'prediction'}_results.json`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
 }
 
 const runPrediction = async () => {
   if (!currentTaskId.value) return ElMessage.warning('请先选择任务')
   if (lifecycleStatus.value !== 'COMPLETED') return ElMessage.warning('任务完成后才能预测')
-  let features
-  try {
-    features = JSON.parse(predictionText.value)
-  } catch {
-    return ElMessage.error('预测输入必须是合法 JSON')
-  }
-  if (!features || Array.isArray(features) || typeof features !== 'object') {
-    return ElMessage.error('预测输入必须是单条样本对象')
+  const rows = predictionRows.value.map((row) => row.features)
+  if (!rows.length) return ElMessage.warning('请先导入或填写预测特征')
+  if (rows.some((row) => !row || !Object.keys(row).length)) {
+    return ElMessage.error('每一行都必须包含至少一个特征')
   }
   predicting.value = true
   try {
-    const result = await predictAgentTask(currentTaskId.value, { features })
-    predictionResult.value = JSON.stringify(result, null, 2)
+    const result = await predictAgentTask(currentTaskId.value, { features: rows })
+    const records = Array.isArray(result?.predictions) ? result.predictions : []
+    predictionRows.value = predictionRows.value.map((row, index) => ({
+      ...row,
+      prediction: records[index]?.prediction ?? (Array.isArray(result?.prediction) ? result.prediction[index] : result?.prediction)
+    }))
+    ElMessage.success(`已完成 ${predictionRows.value.length} 条预测`)
   } catch (error) {
     ElMessage.error(error.message || '预测失败')
   } finally {
@@ -1060,7 +1196,75 @@ onBeforeUnmount(() => {
   margin-top: 12px;
 }
 
-.result-box,
+.prediction-table-wrap {
+  border: 1px solid #343434;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #151515;
+}
+
+.prediction-table-wrap :deep(.el-input__wrapper) {
+  min-height: 32px;
+  border-radius: 10px !important;
+  background: #101010 !important;
+}
+
+.prediction-table-wrap :deep(.el-table__cell) {
+  height: 50px;
+  padding: 8px 0;
+}
+
+.prediction-value {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  color: #f4f4f4;
+  font-weight: 650;
+}
+
+.row-delete-button {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  color: #a8a8a8;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.row-delete-button:hover {
+  color: #f4f4f4;
+  background: #303030;
+  transform: translateY(-1px);
+}
+
+.row-delete-icon {
+  display: none;
+  font-size: 16px;
+}
+
+.prediction-table-wrap :deep(.el-table__row:hover) .row-index {
+  display: none;
+}
+
+.prediction-table-wrap :deep(.el-table__row:hover) .row-delete-icon {
+  display: inline-flex;
+}
+
+.prediction-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 12px;
+  border-top: 1px solid #343434;
+}
+
 .artifact-box,
 .review-payload {
   width: 100%;
@@ -1073,10 +1277,6 @@ onBeforeUnmount(() => {
   background: #101010;
   font-size: 12px;
   line-height: 1.6;
-}
-
-.result-box {
-  max-height: 220px;
 }
 
 .artifact-box {
