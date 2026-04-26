@@ -192,10 +192,117 @@
           </div>
 
           <div class="artifact-actions">
-            <el-button plain :disabled="!currentTaskId" @click="loadReport">报告</el-button>
-            <el-button plain :disabled="!currentTaskId || !canReview" @click="loadCode">代码</el-button>
+            <el-button plain :class="{ active: artifactMode === 'report' }" :disabled="!currentTaskId" @click="loadReport">报告</el-button>
+            <el-button plain :class="{ active: artifactMode === 'code' }" :disabled="!currentTaskId || !canReview" @click="loadCode">代码</el-button>
+            <el-button plain :disabled="!currentReport" @click="exportReportJson">导出报告 JSON</el-button>
           </div>
-          <pre class="artifact-box">{{ artifactText || '任务完成后查看产物。' }}</pre>
+
+          <div v-if="artifactMode === 'report' && currentReport" class="report-visual">
+            <div class="report-summary-grid">
+              <div v-for="item in reportSummaryCards" :key="item.label" class="report-summary-card">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </div>
+            </div>
+
+            <div v-if="currentReport.summary" class="report-section">
+              <span>摘要</span>
+              <p>{{ currentReport.summary }}</p>
+            </div>
+
+            <div class="report-section">
+              <span>特征列</span>
+              <div v-if="reportFeatureColumns.length" class="report-tags">
+                <span v-for="column in reportFeatureColumns" :key="column">{{ column }}</span>
+              </div>
+              <p v-else>暂无特征列信息。</p>
+            </div>
+
+            <div class="report-block">
+              <div class="report-block-head">
+                <div>
+                  <strong>训练指标</strong>
+                  <span>模型训练后的核心评估结果。</span>
+                </div>
+              </div>
+              <div class="report-metric-grid">
+                <div v-for="item in reportTrainingCards" :key="item.label" class="report-metric-card">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+              </div>
+              <el-table v-if="reportCandidateModels.length" :data="reportCandidateModels" class="report-table">
+                <el-table-column prop="model_name" label="候选模型" min-width="180" />
+                <el-table-column
+                  v-for="metric in reportCandidateMetricColumns"
+                  :key="metric"
+                  :label="metric"
+                  min-width="120"
+                >
+                  <template #default="{ row }">{{ formatReportValue(row.metrics?.[metric]) }}</template>
+                </el-table-column>
+              </el-table>
+            </div>
+
+            <div class="report-block">
+              <div class="report-block-head">
+                <div>
+                  <strong>数据分析</strong>
+                  <span>数据规模、字段质量和 Agent 选列判断。</span>
+                </div>
+              </div>
+              <div class="report-metric-grid">
+                <div v-for="item in reportDataCards" :key="item.label" class="report-metric-card">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+              </div>
+              <div v-if="reportSelectionReason" class="report-note">{{ reportSelectionReason }}</div>
+              <div v-if="reportNumericColumns.length" class="report-section inline">
+                <span>数值列</span>
+                <div class="report-tags">
+                  <span v-for="column in reportNumericColumns" :key="column">{{ column }}</span>
+                </div>
+              </div>
+              <el-table v-if="reportMissingRows.length" :data="reportMissingRows" class="report-table">
+                <el-table-column prop="column" label="字段" min-width="160" />
+                <el-table-column prop="missing" label="缺失情况" min-width="120" />
+              </el-table>
+              <el-table v-if="reportSampleRows.length" :data="reportSampleRows" class="report-table" height="240">
+                <el-table-column
+                  v-for="column in reportSampleColumns"
+                  :key="column"
+                  :prop="column"
+                  :label="column"
+                  min-width="120"
+                />
+              </el-table>
+            </div>
+
+            <div class="report-block">
+              <div class="report-block-head">
+                <div>
+                  <strong>模型规划</strong>
+                  <span>模型选择、切分方式和预处理策略。</span>
+                </div>
+              </div>
+              <div class="report-metric-grid">
+                <div v-for="item in reportPlanCards" :key="item.label" class="report-metric-card">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+              </div>
+              <div v-if="reportPreprocessText" class="report-note">{{ reportPreprocessText }}</div>
+              <div v-if="reportPlannedCandidates.length" class="report-section inline">
+                <span>候选模型</span>
+                <div class="report-tags">
+                  <span v-for="model in reportPlannedCandidates" :key="model">{{ model }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <pre v-else class="artifact-box">{{ artifactText || '任务完成后查看产物。' }}</pre>
         </section>
       </template>
     </main>
@@ -350,6 +457,7 @@ const previewRows = ref([])
 const lifecycleStatus = ref('CREATED')
 const currentStage = ref('')
 const artifactText = ref('')
+const artifactMode = ref('empty')
 const predictionRows = ref([])
 const predictionPage = ref(1)
 const predictionPageSize = 5
@@ -435,6 +543,136 @@ const pagedPredictionRows = computed(() => {
   return predictionRows.value.slice(start, start + predictionPageSize)
 })
 const predictionTableHeight = computed(() => predictionTableHeaderHeight + predictionPageSize * predictionRowHeight)
+const reportData = computed(() => currentReport.value?.data_analysis || currentReport.value?.data_result || {})
+const reportModelResult = computed(() => currentReport.value?.model_result || {})
+const reportModelPlan = computed(() => currentReport.value?.model_plan || reportModelResult.value?.model_plan || {})
+const reportMetrics = computed(() => {
+  const metrics = currentReport.value?.metrics
+  if (metrics && Object.keys(metrics).length) return metrics
+  return reportModelResult.value?.best_model?.metrics || reportModelResult.value?.metrics || {}
+})
+const reportFeatureColumns = computed(() => {
+  const columns =
+    currentReport.value?.feature_columns ||
+    reportData.value?.feature_columns ||
+    reportModelResult.value?.feature_columns
+  return Array.isArray(columns) ? columns : []
+})
+const reportTargetColumn = computed(
+  () =>
+    currentReport.value?.target_column ||
+    reportData.value?.target_column ||
+    reportModelResult.value?.target_column ||
+    currentTask.value?.target_column ||
+    '-'
+)
+const reportTaskType = computed(
+  () =>
+    currentReport.value?.task_type ||
+    reportModelResult.value?.task_type ||
+    currentReport.value?.parsed_task?.task_type ||
+    currentTask.value?.task_type ||
+    '-'
+)
+const reportSummaryCards = computed(() => {
+  const report = currentReport.value || {}
+  return [
+    { label: '任务 ID', value: report.task_id || currentTaskId.value || '-' },
+    { label: '任务类型', value: reportTaskType.value },
+    { label: '目标列', value: reportTargetColumn.value },
+    { label: '评估指标', value: reportMetrics.value.metric || reportModelPlan.value.primary_metric || '-' },
+    { label: '指标得分', value: formatReportValue(reportMetrics.value.score ?? reportMetrics.value[reportModelPlan.value.primary_metric]) },
+    { label: '特征数量', value: String(reportFeatureColumns.value.length) }
+  ]
+})
+const reportBestModelName = computed(
+  () => reportModelResult.value?.best_model?.model_name || reportModelPlan.value?.model_name || '-'
+)
+const reportTrainingCards = computed(() => {
+  const metrics = reportMetrics.value
+  const cards = [
+    { label: '最佳模型', value: reportBestModelName.value },
+    { label: '主指标', value: metrics.metric || reportModelPlan.value.primary_metric || '-' },
+    { label: '训练行数', value: formatReportValue(metrics.train_rows ?? reportModelResult.value?.train_size) },
+    { label: '测试行数', value: formatReportValue(reportModelResult.value?.test_size) }
+  ]
+  Object.entries(metrics)
+    .filter(([key]) => !['metric', 'train_rows'].includes(key))
+    .forEach(([key, value]) => cards.push({ label: metricLabel(key), value: formatReportValue(value) }))
+  return cards.filter((item) => item.value !== '-')
+})
+const reportCandidateModels = computed(() => {
+  const candidates = reportModelResult.value?.candidate_models
+  return Array.isArray(candidates) ? candidates : []
+})
+const reportCandidateMetricColumns = computed(() => {
+  const columns = new Set()
+  reportCandidateModels.value.forEach((model) => {
+    Object.keys(model.metrics || {}).forEach((key) => columns.add(key))
+  })
+  return Array.from(columns)
+})
+const reportMissingRows = computed(() => {
+  const missing = reportData.value?.missing_values || reportData.value?.missing_ratio || {}
+  return Object.entries(missing).map(([column, value]) => ({
+    column,
+    missing: typeof value === 'number' && value > 0 && value < 1 ? `${(value * 100).toFixed(2)}%` : formatReportValue(value)
+  }))
+})
+const reportMissingSummary = computed(() => {
+  const raw = reportData.value?.missing_values || reportData.value?.missing_ratio || {}
+  const values = Object.values(raw).filter((value) => Number(value) > 0)
+  if (!Object.keys(raw).length) return '-'
+  if (reportData.value?.missing_ratio) return `${values.length}/${Object.keys(raw).length} 列`
+  return formatReportValue(values.reduce((total, value) => total + Number(value), 0))
+})
+const reportDataCards = computed(() => [
+  { label: '数据行数', value: formatReportValue(reportData.value?.row_count) },
+  { label: '字段数量', value: formatReportValue(reportData.value?.column_count || reportData.value?.columns?.length) },
+  { label: '缺失情况', value: reportMissingSummary.value },
+  { label: '目标均值', value: formatReportValue(reportData.value?.target_mean) },
+  { label: '目标标准差', value: formatReportValue(reportData.value?.target_std) },
+  { label: 'LLM 参与', value: reportData.value?.llm_used === undefined ? '-' : reportData.value.llm_used ? '是' : '否' }
+].filter((item) => item.value !== '-'))
+const reportSelectionReason = computed(
+  () => reportData.value?.selection_reason || reportData.value?.llm_output?.selection_reason || ''
+)
+const reportNumericColumns = computed(() => {
+  const columns = reportData.value?.numeric_columns
+  return Array.isArray(columns) ? columns : []
+})
+const reportSampleRows = computed(() => {
+  const rows = reportData.value?.sample_rows || reportData.value?.preview || []
+  return Array.isArray(rows) ? rows : []
+})
+const reportSampleColumns = computed(() => {
+  const columns = new Set()
+  reportSampleRows.value.forEach((row) => Object.keys(row || {}).forEach((column) => columns.add(column)))
+  return Array.from(columns)
+})
+const reportPlanCards = computed(() => [
+  { label: '框架', value: reportModelPlan.value?.framework || 'sklearn' },
+  { label: '模型', value: reportModelPlan.value?.model_name || reportBestModelName.value },
+  { label: '评估指标', value: reportModelPlan.value?.metric || reportModelPlan.value?.primary_metric || '-' },
+  { label: '测试集比例', value: formatReportValue(reportModelPlan.value?.train_test_split ?? reportModelPlan.value?.test_size) },
+  { label: '随机种子', value: formatReportValue(reportModelPlan.value?.random_state) },
+  { label: '分层抽样', value: reportModelPlan.value?.use_stratify === undefined ? '-' : reportModelPlan.value.use_stratify ? '是' : '否' }
+].filter((item) => item.value !== '-'))
+const reportPreprocessText = computed(
+  () =>
+    reportModelPlan.value?.preprocess ||
+    [
+      reportData.value?.numeric_missing_strategy ? `数值缺失：${reportData.value.numeric_missing_strategy}` : '',
+      reportData.value?.categorical_missing_strategy ? `类别缺失：${reportData.value.categorical_missing_strategy}` : '',
+      reportData.value?.categorical_encoding_strategy ? `类别编码：${reportData.value.categorical_encoding_strategy}` : ''
+    ]
+      .filter(Boolean)
+      .join('；')
+)
+const reportPlannedCandidates = computed(() => {
+  const candidates = reportModelPlan.value?.candidate_models
+  return Array.isArray(candidates) ? candidates : []
+})
 
 const stages = computed(() => {
   const reviewStage = lifecycleStatus.value === 'WAITING_HUMAN' ? currentStage.value : ''
@@ -493,6 +731,32 @@ const formatPredictionValue = (value) => {
   if (value === undefined || value === null || value === '') return '-'
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
+}
+const metricLabel = (key) =>
+  ({
+    score: '指标得分',
+    accuracy: '准确率',
+    r2: 'R2',
+    r2_score: 'R2',
+    mae: 'MAE',
+    rmse: 'RMSE'
+  })[key] || key
+const formatReportValue = (value) => {
+  if (value === undefined || value === null || value === '') return '-'
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(4)
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+const downloadJson = (value, filename) => {
+  const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
 }
 
 const syncTaskState = (task) => {
@@ -564,6 +828,7 @@ const createTaskOnly = async () => {
     datasetId.value = draftDatasetId.value
     createDialogVisible.value = false
     artifactText.value = ''
+    artifactMode.value = 'empty'
     predictionRows.value = []
     predictionPage.value = 1
     currentReport.value = null
@@ -580,6 +845,7 @@ const runSelectedTask = async () => {
   if (!currentTaskId.value || running.value) return
   running.value = true
   artifactText.value = ''
+  artifactMode.value = 'empty'
   predictionRows.value = predictionRows.value.map((row) => ({ ...row, prediction: '' }))
   currentReport.value = null
   try {
@@ -625,6 +891,7 @@ const selectTask = async (taskId) => {
     const task = await fetchAgentTask(taskId)
     syncTaskState(task)
     artifactText.value = ''
+    artifactMode.value = 'empty'
     predictionRows.value = []
     predictionPage.value = 1
     currentReport.value = null
@@ -721,6 +988,7 @@ const loadReport = async () => {
     const report = await fetchAgentReport(currentTaskId.value)
     currentReport.value = report
     artifactText.value = JSON.stringify(report, null, 2)
+    artifactMode.value = 'report'
     if (!predictionRows.value.length) fillPredictionSample()
   } catch (error) {
     ElMessage.error(error.message || '报告加载失败')
@@ -733,6 +1001,7 @@ const loadCode = async () => {
     const code = await fetchAgentCode(currentTaskId.value)
     artifactText.value =
       typeof code === 'string' ? code : code?.python_code || code?.code || JSON.stringify(code, null, 2)
+    artifactMode.value = 'code'
   } catch (error) {
     ElMessage.error(error.message || '代码加载失败')
   }
@@ -788,15 +1057,12 @@ const removePredictionRow = (rowId) => {
 
 const exportPredictionJson = () => {
   const rows = predictionRows.value.map((row) => ({ ...row.features, prediction: row.prediction }))
-  const blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${currentTaskId.value || 'prediction'}_results.json`
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
+  downloadJson(rows, `${currentTaskId.value || 'prediction'}_results.json`)
+}
+
+const exportReportJson = () => {
+  if (!currentReport.value) return ElMessage.warning('请先加载报告')
+  downloadJson(currentReport.value, `${currentTaskId.value || 'task'}_report.json`)
 }
 
 const runPrediction = async () => {
@@ -1124,6 +1390,12 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
+.artifact-actions .active {
+  color: #101010 !important;
+  border-color: #f4f4f4 !important;
+  background: #f4f4f4 !important;
+}
+
 .stage-list {
   display: grid;
   gap: 8px;
@@ -1283,6 +1555,143 @@ onBeforeUnmount(() => {
   height: 360px;
 }
 
+.report-visual {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.report-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.report-summary-card,
+.report-section,
+.report-block {
+  border: 1px solid #343434;
+  border-radius: 16px;
+  background: #101010;
+}
+
+.report-summary-card {
+  min-width: 0;
+  padding: 12px;
+}
+
+.report-summary-card span,
+.report-section > span,
+.report-metric-card span,
+.report-block-head span {
+  display: block;
+  color: #9a9a9a;
+  font-size: 12px;
+}
+
+.report-summary-card strong {
+  display: block;
+  margin-top: 7px;
+  color: #f4f4f4;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.report-section {
+  padding: 14px;
+}
+
+.report-section.inline {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.report-section p {
+  margin: 8px 0 0;
+  color: #e8e8e8;
+  line-height: 1.7;
+}
+
+.report-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.report-tags span {
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid #343434;
+  border-radius: 999px;
+  color: #e8e8e8;
+  background: #181818;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.report-block {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.report-block-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.report-block-head strong {
+  display: block;
+  color: #f4f4f4;
+  font-size: 15px;
+}
+
+.report-block-head span {
+  margin-top: 4px;
+}
+
+.report-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.report-metric-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #343434;
+  border-radius: 14px;
+  background: #181818;
+}
+
+.report-metric-card strong {
+  display: block;
+  margin-top: 7px;
+  color: #e8e8e8;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.report-note {
+  padding: 12px;
+  border: 1px solid #343434;
+  border-radius: 14px;
+  color: #e8e8e8;
+  background: #181818;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.report-table {
+  overflow: hidden;
+  border: 1px solid #343434;
+  border-radius: 14px;
+}
+
 .review-body {
   display: grid;
   gap: 14px;
@@ -1351,7 +1760,9 @@ onBeforeUnmount(() => {
   }
 
   .status-strip,
-  .review-meta {
+  .review-meta,
+  .report-summary-grid,
+  .report-metric-grid {
     grid-template-columns: 1fr;
   }
 
