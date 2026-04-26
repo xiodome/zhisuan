@@ -404,8 +404,18 @@ const normalizeTaskId = (task) => task?.task_id || task?.id || task?.task?.task_
 
 const syncTaskState = (task) => {
   if (!task) return
-  currentTask.value = task
-  currentTaskId.value = String(normalizeTaskId(task) || currentTaskId.value || '')
+  const nextTaskId = String(normalizeTaskId(task) || currentTaskId.value || '')
+  currentTask.value = {
+    ...(currentTask.value || {}),
+    ...task,
+    task_id: nextTaskId,
+    task_description: task.task_description ?? currentTask.value?.task_description,
+    task_type: task.task_type ?? currentTask.value?.task_type,
+    target_column: task.target_column ?? currentTask.value?.target_column,
+    dataset_id: task.dataset_id ?? currentTask.value?.dataset_id,
+    feature_columns: task.feature_columns ?? currentTask.value?.feature_columns
+  }
+  currentTaskId.value = nextTaskId
   datasetId.value = task.dataset_id || datasetId.value
   lifecycleStatus.value = task.status || task.lifecycle_status || task.task_status || lifecycleStatus.value
   currentStage.value = task.current_stage || task.stage || task.current_node || task.progress?.current_stage || currentStage.value
