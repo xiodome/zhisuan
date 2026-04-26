@@ -210,6 +210,21 @@
               <p>{{ currentReport.summary }}</p>
             </div>
 
+            <div v-if="reportRecommendations.length || reportRiskNotes.length" class="report-advice-grid">
+              <div v-if="reportRecommendations.length" class="report-section">
+                <span>使用建议</span>
+                <ul>
+                  <li v-for="item in reportRecommendations" :key="item">{{ item }}</li>
+                </ul>
+              </div>
+              <div v-if="reportRiskNotes.length" class="report-section">
+                <span>风险提示</span>
+                <ul>
+                  <li v-for="item in reportRiskNotes" :key="item">{{ item }}</li>
+                </ul>
+              </div>
+            </div>
+
             <div class="report-section">
               <span>特征列</span>
               <div v-if="reportFeatureColumns.length" class="report-tags">
@@ -240,6 +255,15 @@
                   min-width="120"
                 >
                   <template #default="{ row }">{{ formatReportValue(row.metrics?.[metric]) }}</template>
+                </el-table-column>
+              </el-table>
+              <el-table v-if="reportFeatureImportance.length" :data="reportFeatureImportance" class="report-table">
+                <el-table-column prop="feature" label="重要特征" min-width="160" />
+                <el-table-column label="影响强度" min-width="120">
+                  <template #default="{ row }">{{ formatReportValue(row.importance) }}</template>
+                </el-table-column>
+                <el-table-column label="方向" min-width="100">
+                  <template #default="{ row }">{{ row.direction === 'positive' ? '正相关' : '负相关' }}</template>
                 </el-table-column>
               </el-table>
             </div>
@@ -544,7 +568,14 @@ const pagedPredictionRows = computed(() => {
 })
 const predictionTableHeight = computed(() => predictionTableHeaderHeight + predictionPageSize * predictionRowHeight)
 const reportData = computed(() => currentReport.value?.data_analysis || currentReport.value?.data_result || {})
-const reportModelResult = computed(() => currentReport.value?.model_result || {})
+const reportModelTraining = computed(() => currentReport.value?.model_training || {})
+const reportModelResult = computed(() =>
+  currentReport.value?.model_result || {
+    ...reportModelTraining.value,
+    train_size: reportModelTraining.value?.metrics?.train_rows,
+    test_size: reportModelTraining.value?.metrics?.test_rows,
+  }
+)
 const reportModelPlan = computed(() => currentReport.value?.model_plan || reportModelResult.value?.model_plan || {})
 const reportMetrics = computed(() => {
   const metrics = currentReport.value?.metrics
@@ -672,6 +703,18 @@ const reportPreprocessText = computed(
 const reportPlannedCandidates = computed(() => {
   const candidates = reportModelPlan.value?.candidate_models
   return Array.isArray(candidates) ? candidates : []
+})
+const reportRecommendations = computed(() => {
+  const items = currentReport.value?.recommendations || []
+  return Array.isArray(items) ? items : []
+})
+const reportRiskNotes = computed(() => {
+  const items = currentReport.value?.risk_notes || []
+  return Array.isArray(items) ? items : []
+})
+const reportFeatureImportance = computed(() => {
+  const items = reportModelTraining.value?.feature_importance || currentReport.value?.feature_importance || []
+  return Array.isArray(items) ? items : []
 })
 
 const stages = computed(() => {
@@ -1613,6 +1656,19 @@ onBeforeUnmount(() => {
   line-height: 1.7;
 }
 
+.report-section ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: #e8e8e8;
+  line-height: 1.7;
+}
+
+.report-advice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .report-tags {
   display: flex;
   flex-wrap: wrap;
@@ -1762,6 +1818,7 @@ onBeforeUnmount(() => {
   .status-strip,
   .review-meta,
   .report-summary-grid,
+  .report-advice-grid,
   .report-metric-grid {
     grid-template-columns: 1fr;
   }
