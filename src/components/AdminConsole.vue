@@ -111,11 +111,8 @@
             <el-table-column label="Token 额度" width="130">
               <template #default="scope">{{ formatNumber(scope.row.tokenQuota) }}</template>
             </el-table-column>
-            <el-table-column label="已用 Token" width="130">
-              <template #default="scope">{{ formatNumber(scope.row.tokenUsed) }}</template>
-            </el-table-column>
             <el-table-column label="使用上限" width="130">
-              <template #default="scope">{{ formatNumber(scope.row.usageLimit) }}</template>
+              <template #default="scope">{{ formatNumber(scope.row.tokenLimit) }}</template>
             </el-table-column>
             <el-table-column label="预警阈值" width="110">
               <template #default="scope">{{ formatPercent(scope.row.warningThreshold) }}</template>
@@ -506,7 +503,7 @@
                 <el-button size="small" type="danger" link @click="handleModelReject(scope.row)">
                   驳回
                 </el-button>
-                <el-button size="small" type="primary" link @click="toggleDatasetPublish(scope.row)">
+                <el-button size="small" type="primary" link @click="toggleModelPublish(scope.row)">
                   {{ scope.row.publishStatus === 'PUBLIC' ? '下架' : '公开' }}
                 </el-button>
                 <el-button size="small" type="info" link @click="openModelMetaDialog(scope.row)">
@@ -649,13 +646,11 @@
   </div>
 </template>
 
-
-
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  isUsingMockData,  // 当前是否为假数据模式
+  isUsingMockData,  
   adjustUserQuota,
   fetchDatasetList,
   fetchModelList,
@@ -684,20 +679,12 @@ const roleTagMap = {
   ZERO_BASIS: 'info'
 }
 
-// 筛选标签种类(后面可以改)
-// 调用接口类型(真的有这个字段吗)
 const endpointOptions = ['/api/chat/completions', '/api/embeddings', '/api/images/generations']
-// 数据集分类
 const datasetCategoryOptions = ['农业', '医疗', '交通', '遥感', '教育']
-// 数据集标签
 const datasetTagOptions = ['图像', '文本', '时序', '病虫害', '诊断', '公开数据', '标注']
-// 模型分类
 const modelCategoryOptions = ['分类', '回归']
-// 模型标签
 const modelTagOptions = ['分类', '回归']
 
-
-// 审核状态
 const reviewStatusOptions = [
   { label: '待审核', value: 'PENDING' },
   { label: '已通过', value: 'APPROVED' },
@@ -710,7 +697,6 @@ const reviewStatusMap = {
   REJECTED: { label: '已驳回', type: 'danger' }
 }
 
-// 公开状态(不知道是否真的有两个状态字段)
 const publishStatusOptions = [
   { label: '公开中', value: 'PUBLIC' },
   { label: '未公开', value: 'PRIVATE' },
@@ -724,7 +710,7 @@ const publishStatusMap = {
 }
 
 const formatNumber = (value) => Number(value || 0).toLocaleString()
-const formatPercent = (value) => `${Math.round(Number(value || 0) * 100)}%`
+const formatPercent = (value) => `${Math.round(Number(value || 0))}%`
 const normalizeTags = (tags) => (Array.isArray(tags) ? tags.filter((item) => !!item) : [])
 
 const resolveRoleLabel = (value) => {
@@ -745,13 +731,11 @@ const getQuotaUsageRate = (user) => {
   return Number(user.tokenUsed || 0) / Number(user.tokenQuota || 1)
 }
 
-// 超过阈值预警
-const isQuotaWarning = (user) => getQuotaUsageRate(user) >= Number(user.warningThreshold || 0)
+const isQuotaWarning = (user) => getQuotaUsageRate(user) >= Number(user.warningThreshold || 0) / 100
 
-// 超过额度或上限提示额度不足
 const isQuotaInsufficient = (user) =>
   Number(user.tokenUsed || 0) >= Number(user.tokenQuota || 0) ||
-  Number(user.tokenUsed || 0) >= Number(user.usageLimit || 0)
+  Number(user.tokenUsed || 0) >= Number(user.tokenLimit || 0)
 
 const resolveQuotaStatusLabel = (user) => {
   if (isQuotaInsufficient(user)) return '额度不足'
@@ -829,8 +813,6 @@ const quotaRules = {
   warningThreshold: [{ required: true, message: '请输入预警阈值', trigger: 'blur' }]
 }
 
-
-
 const datasetLoading = ref(false)
 const datasetFilters = reactive({
   keyword: '',
@@ -862,8 +844,6 @@ const datasetMetaForm = reactive({
   tags: []
 })
 
-
-
 const modelLoading = ref(false)
 const modelFilters = reactive({
   keyword: '',
@@ -894,7 +874,6 @@ const modelMetaForm = reactive({
   category: '',
   tags: []
 })
-
 
 
 /*================================================API额度管理================================================*/
@@ -973,8 +952,8 @@ const resetConsumptionFilters = async () => {
 const openQuotaDialog = (user) => {
   editingQuotaUser.value = user
   quotaForm.tokenQuota = Number(user.tokenQuota || 0)
-  quotaForm.usageLimit = Number(user.usageLimit || 0)
-  quotaForm.warningThreshold = Math.round(Number(user.warningThreshold || 0) * 100)
+  quotaForm.usageLimit = Number(user.tokenLimit || user.tokenQuota || 0) 
+  quotaForm.warningThreshold = Number(user.warningThreshold || 0) 
   quotaForm.reason = ''
   quotaDialogVisible.value = true
 }
@@ -995,8 +974,8 @@ const submitQuotaAdjustment = async () => {
     await adjustUserQuota({
       userId: editingQuotaUser.value.id,
       tokenQuota: Number(quotaForm.tokenQuota),
-      usageLimit: Number(quotaForm.usageLimit),
-      warningThreshold: Number(quotaForm.warningThreshold) / 100,
+      tokenLimit: Number(quotaForm.usageLimit), 
+      warningThreshold: Number(quotaForm.warningThreshold), 
       reason: quotaForm.reason.trim()
     })
     ElMessage.success('额度调整成功')
@@ -1257,13 +1236,9 @@ const submitModelMeta = async () => {
   }
 }
 
-
-
-// 首次进入就把三块数据都拉齐
 onMounted(async () => {
   await Promise.all([refreshQuotaSection(), loadDatasets(), loadModels()])
 })
-
 </script>
 
 <style scoped>
