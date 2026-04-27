@@ -205,3 +205,36 @@ export const fetchAgentWorkflows = async () => {
     handleAgentError(error, '工作流列表加载失败')
   }
 }
+/* ==========================================
+   管理员专属 Agent 接口 (仅 ADMIN 可访问)
+   ========================================== */
+
+// 1. 管理员查询全部 Agent 任务
+export const fetchAdminAgentTasks = async () => {
+  try {
+    const response = await agentApi.get('/api/agent/admin/tasks')
+    return unwrap(response)
+  } catch (error) {
+    handleAgentError(error, '管理员查询全部任务失败')
+  }
+}
+
+// 2. 管理员查询 Agent 任务日志
+export const fetchAdminAgentTaskLogs = async (taskId) => {
+  try {
+    const response = await agentApi.get(`/api/agent/admin/tasks/${taskId}/logs`)
+    return unwrap(response)
+  } catch (error) {
+    handleAgentError(error, '管理员查询任务日志失败')
+  }
+}
+
+// 3. 管理员查询 Agent 资源摘要 (用于后台监控面板展示)
+export const fetchAdminAgentResourceSummary = async () => {
+  try {
+    const response = await agentApi.get('/api/agent/admin/resource-summary')
+    return unwrap(response)
+  } catch (error) {
+    handleAgentError(error, '资源监控摘要加载失败')
+  }
+}

@@ -4,315 +4,189 @@ import { useUserStore } from '../store/user'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 5000
+  timeout: 10000
 })
 
 api.interceptors.request.use((config) => {
-  const store = useUserStore()
-  if (store.token) {
-    config.headers.Authorization = `Bearer ${store.token}`
-  }
+  try {
+    const store = useUserStore()
+    if (store.token) {
+      config.headers.Authorization = `Bearer ${store.token}`
+    }
+  } catch (e) { }
   return config
 })
 
-// 关闭假数据模式，启用真实接口
+// 组件需要的导出变量
 export const isUsingMockData = false
-const USE_MOCK_DATA = false
 
-// 通用的解包函数（适配 FastAPI 通常返回 { success: true, data: {...} } 的情况）
-const unwrap = (response) => {
-  if (response.data && response.data.data !== undefined) {
-    return response.data.data
-  }
-  return response.data
+const unwrap = (response) => (response.data?.data !== undefined ? response.data.data : response.data)
+
+/**
+ * 状态映射：前端字符串 (PENDING/APPROVED/REJECTED) -> 后端 Integer (0/1/2)
+ */
+const mapStatusToBackend = (statusStr) => {
+  if (statusStr === 'APPROVED' || statusStr === 'SUCCESS') return 1
+  if (statusStr === 'REJECTED' || statusStr === 'FAIL') return 2
+  return 0 // PENDING
 }
 
-// 统一的错误处理
-const handleAdminError = (error, fallbackMsg) => {
-  const detail = error.response?.data?.detail || error.response?.data?.message
-  if (Array.isArray(detail) && detail.length) {
-    throw new Error(detail[0].msg || fallbackMsg)
-  }
-  if (typeof detail === 'string') {
-    throw new Error(detail)
-  }
-  throw new Error(fallbackMsg)
-}
+/* ========================== 1. API 额度管理 ========================== */
 
-
-/*==========================================================API额度管理==========================================================*/
-
-// 1. 获取API额度总览(管理用户数、累计消耗 Token、预警用户数、额度不足用户)
-export async function fetchQuotaOverview() {
+export async function fetchQuotaUserList() {
   try {
-    // 后端没有专门的总览接口，通过获取所有用户列表并在前端计算总览数据
-    const response = await api.get('/api/quota/admin/users', { params: { page: 1, page_size: 1000 } })
-    const data = unwrap(response)
-    const list = data.list || data || []
+    const response = await api.get('/api/quota/admin/users', { params: { page: 1, page_size: 100 } })
+    const data = unwrap(response) || {}
     
-    const totalConsumedTokens = list.reduce((sum, item) => sum + (item.api_token_used || 0), 0)
+    // 安全提取数组，兼容后端返回纯数组或分页对象
+    const list = Array.isArray(data) ? data : (data.list || data.items || [])
     
-    const warningUsers = list.filter((item) => {
-      const quota = item.api_token_limit || 1
-      const used = item.api_token_used || 0
-      // 如果后端没传预警阈值，默认按 0.8 计算
-      const threshold = item.api_token_warning_threshold || 0.8
-      return (used / quota) >= threshold
-    }).length
-
-    const insufficientUsers = list.filter((item) => {
-      const quota = item.api_token_limit || 0
-      const used = item.api_token_used || 0
-      return used >= quota
-    }).length
-
     return {
-      totalUsers: list.length,
-      totalConsumedTokens,
-      warningUsers,
-      insufficientUsers
+      list: list.map(item => {
+        const limit = item.api_token_limit || 1
+        const threshold = item.api_token_warning_threshold || 0
+        
+        let displayPercent = threshold > 1 ? (threshold / limit) * 100 : threshold * 100
+        if (displayPercent > 100) displayPercent = 100
+
+        // 【终极修复】：为 UI 组件提供全套字段别名，防止数据丢失和逻辑误判
+        return {
+          id: item.id,                      // 兼容部分组件需要的 id
+          userId: item.id,                  // 兼容部分组件需要的 userId
+          username: item.username,
+          role: item.role,
+          tokenQuota: item.api_token_limit, // 对应 "Token 额度"
+          tokenLimit: item.api_token_limit, // 修复 "使用上限" 为 0 的问题
+          limit: item.api_token_limit,      // 备用上限字段
+          tokenUsed: item.api_token_used,   // 对应 "已用 Token"
+          used: item.api_token_used,        // 备用已用字段
+          warningThreshold: Math.round(displayPercent),
+          status: item.status === 1 ? 'enabled' : 'disabled',
+          updatedAt: item.created_at?.replace('T', ' ').substring(0, 19) || '-'
+        }
+      }),
+      // 安全提取总条数
+      total: data.total || list.length
     }
-  } catch (error) {
-    console.error('获取额度总览失败', error)
-    return { totalUsers: 0, totalConsumedTokens: 0, warningUsers: 0, insufficientUsers: 0 }
-  }
+  } catch (error) { throw error }
 }
 
-// 2. 获取用户额度列表
-export async function fetchQuotaUserList(filters = {}) {
-  try {
-    const params = {
-      page: 1,
-      page_size: 1000 // 假设后端未完全支持条件过滤，我们先全量拉取，然后在前端过滤分页
-    }
-    const response = await api.get('/api/quota/admin/users', { params })
-    const data = unwrap(response)
-    
-    // 将后端的字段映射为前端表格需要的字段
-    let list = (data.list || data || []).map(item => ({
-      id: item.id,
-      username: item.username,
-      role: item.role,
-      tokenQuota: item.api_token_limit,
-      tokenUsed: item.api_token_used,
-      usageLimit: item.api_token_limit, // 后端 Swagger 只有 limit，这里与 tokenQuota 保持一致
-      warningThreshold: item.api_token_warning_threshold || 0.8,
-      status: item.status === 1 ? 'enabled' : 'disabled',
-      updatedAt: item.created_at ? item.created_at.replace('T', ' ').substring(0, 19) : '-'
-    }))
-
-    // 执行前端筛选逻辑
-    if (filters.username) {
-      const keyword = filters.username.trim().toLowerCase()
-      list = list.filter(item => item.username && item.username.toLowerCase().includes(keyword))
-    }
-    if (filters.role) {
-      list = list.filter(item => item.role === filters.role)
-    }
-    if (filters.status) {
-      list = list.filter(item => item.status === filters.status)
-    }
-
-    return {
-      list: list,
-      total: list.length
-    }
-  } catch (error) {
-    handleAdminError(error, '获取用户额度列表失败')
-  }
-}
-
-// 3. 调整用户的额度 
 export async function adjustUserQuota(payload) {
-  try {
-    // 将前端表单字段映射为后端 Swagger 要求的请求体字段
-    const requestData = {
-      api_token_limit: payload.tokenQuota,
-      api_token_warning_threshold: payload.warningThreshold
-    }
-    const response = await api.put(`/api/quota/admin/adjust/${payload.userId}`, requestData)
-    return unwrap(response)
-  } catch (error) {
-    handleAdminError(error, '调整额度失败')
+  // 兼容 UI 弹窗表单传回来的各种可能的字段名
+  const limit = Number(payload.tokenLimit || payload.tokenQuota || payload.limit || 0)
+  const percent = Number(payload.warningThreshold || payload.percent || 0)
+  
+  // 防止 URL 出现 /undefined 的 404 错误
+  const targetId = payload.userId || payload.id 
+  
+  const body = {
+    api_token_limit: limit,
+    api_token_warning_threshold: Math.floor(limit * (percent / 100))
+  }
+
+  const response = await api.put(`/api/quota/admin/adjust/${targetId}`, body)
+  return unwrap(response)
+}
+
+export async function fetchQuotaOverview() {
+  const res = await api.get('/api/quota/admin/users', { params: { page: 1, page_size: 100 } })
+  const data = unwrap(res) || {}
+  
+  // 安全提取数组
+  const list = Array.isArray(data) ? data : (data.list || data.items || [])
+  
+  return {
+    totalUsers: data.total || list.length,
+    totalConsumedTokens: list.reduce((s, i) => s + (i.api_token_used || 0), 0),
+    warningUsers: list.filter(i => {
+      const limit = i.api_token_limit || 1;
+      return (i.api_token_used / limit) >= 0.8;
+    }).length,
+    insufficientUsers: list.filter(i => i.api_token_used >= (i.api_token_limit || 0)).length
   }
 }
 
-// 4. 获取调用消耗记录列表 
-export async function fetchQuotaConsumptionRecords(filters = {}) {
-  try {
-    const params = {
-      page: 1,
-      page_size: 1000
-    }
-    const response = await api.get('/api/quota/admin/logs', { params })
-    const data = unwrap(response)
-    
-    // 适配后端日志字段到前端
-    let list = (data.list || data || []).map(item => ({
-      ...item,
-      username: item.username || `User_${item.user_id}`,
-      endpoint: item.endpoint || item.api_endpoint || '-',
-      modelName: item.modelName || item.model_name || '-',
-      tokenConsumed: item.tokenConsumed || item.token_consumed || item.tokens || 0,
-      createdAt: item.createdAt || item.created_at ? item.created_at.replace('T', ' ').substring(0, 19) : '-'
-    }))
-
-    // 执行前端筛选逻辑
-    if (filters.username) {
-      const keyword = filters.username.trim().toLowerCase()
-      list = list.filter(item => item.username && item.username.toLowerCase().includes(keyword))
-    }
-    if (filters.endpoint) {
-      list = list.filter(item => item.endpoint === filters.endpoint)
-    }
-
-    return {
-      list: list,
-      total: list.length
-    }
-  } catch (error) {
-    handleAdminError(error, '获取消耗记录失败')
-  }
+export async function fetchQuotaConsumptionRecords() { 
+  const res = await api.get('/api/quota/admin/logs', { params: { page: 1, page_size: 20 } })
+  const data = unwrap(res) || {}
+  
+  // 安全提取数组
+  const list = Array.isArray(data) ? data : (data.list || data.items || [])
+  
+  return { 
+    list: list, 
+    total: data.total || list.length 
+  } 
 }
 
+/* ========================== 2. 数据中心 & 模型广场管理 ========================== */
 
-/*==========================================================数据中心审核与管理==========================================================*/
-
-// 1. 获取数据集列表
 export async function fetchDatasetList(filters = {}) {
-  try {
-    const params = {
-      keyword: filters.keyword || '',
-      review_status: filters.reviewStatus || '',
-      publish_status: filters.publishStatus || '',
-      category: filters.category || ''
-    }
-    const response = await api.get('/api/datasets/admin/all', { params })
-    const data = unwrap(response)
-    
-    const list = (data.list || data || []).map(item => ({
-      ...item,
-      reviewStatus: item.review_status || item.reviewStatus,
-      publishStatus: item.publish_status || item.publishStatus,
-      submittedAt: item.created_at || item.submittedAt
-    }))
-    
-    return { list: list, total: data.total || list.length }
-  } catch (error) {
-    handleAdminError(error, '获取数据集列表失败')
+  const params = {}
+  if (filters.reviewStatus) params.status = mapStatusToBackend(filters.reviewStatus)
+
+  const response = await api.get('/api/datasets/admin/all', { params })
+  const data = unwrap(response) || {}
+  
+  // 安全提取数组
+  const list = Array.isArray(data) ? data : (data.list || data.items || [])
+  
+  return {
+    list: list.map(i => ({
+      ...i,
+      reviewStatus: i.status === 1 ? 'APPROVED' : (i.status === 2 ? 'REJECTED' : 'PENDING'),
+      submittedAt: i.created_at
+    })),
+    total: data.total || list.length
   }
 }
 
-// 2. 更新数据集审核状态 
-export async function updateDatasetReviewStatus(payload) {
-  try {
-    const response = await api.post(`/api/datasets/${payload.datasetId}/audit`, {
-      action: payload.reviewStatus, 
-      comment: payload.reviewComment
-    })
-    return unwrap(response)
-  } catch (error) {
-    handleAdminError(error, '更新审核状态失败')
-  }
-}
-
-// 3. 更新数据集的公开状态 
-export async function updateDatasetPublishStatus(payload) {
-  try {
-    if (payload.publishStatus === 'OFFLINE' || payload.publishStatus === 'PRIVATE') {
-      const response = await api.post(`/api/datasets/${payload.datasetId}/take-down`)
-      return unwrap(response)
-    } else {
-      // 占位，待后端提供重新上架接口
-      const response = await api.post(`/api/datasets/${payload.datasetId}/publish`)
-      return unwrap(response)
-    }
-  } catch (error) {
-    handleAdminError(error, '更新公开状态失败')
-  }
-}
-
-// 4. 更新数据集的分类和标签
-export async function updateDatasetMeta(payload) {
-  try {
-    // 占位，待后端提供修改标签接口
-    const response = await api.put(`/api/datasets/${payload.datasetId}/meta`, {
-      category: payload.category,
-      tags: payload.tags
-    })
-    return unwrap(response)
-  } catch (error) {
-    handleAdminError(error, '更新分类与标签失败')
-  }
-}
-
-
-/*==========================================================模型广场审核与管理==========================================================*/
-
-// 1. 获取模型列表
 export async function fetchModelList(filters = {}) {
-  try {
-    const params = {
-      keyword: filters.keyword || '',
-      review_status: filters.reviewStatus || '',
-      publish_status: filters.publishStatus || '',
-      category: filters.category || ''
-    }
-    const response = await api.get('/api/models/admin/all', { params })
-    const data = unwrap(response)
-    
-    const list = (data.list || data || []).map(item => ({
-      ...item,
-      reviewStatus: item.review_status || item.reviewStatus,
-      publishStatus: item.publish_status || item.publishStatus,
-      createdAt: item.created_at || item.createdAt
-    }))
+  const params = {}
+  if (filters.reviewStatus) params.status = mapStatusToBackend(filters.reviewStatus)
 
-    return { list: list, total: data.total || list.length }
-  } catch (error) {
-    handleAdminError(error, '获取模型列表失败')
+  const response = await api.get('/api/models/admin/all', { params })
+  const data = unwrap(response) || {}
+  
+  // 安全提取数组
+  const list = Array.isArray(data) ? data : (data.list || data.items || [])
+  
+  return {
+    list: list.map(i => ({
+      ...i,
+      reviewStatus: i.status === 1 ? 'APPROVED' : (i.status === 2 ? 'REJECTED' : 'PENDING'),
+      createdAt: i.created_at
+    })),
+    total: data.total || list.length
   }
 }
 
-// 2. 更新模型审核状态 
-export async function updateModelReviewStatus(payload) {
-  try {
-    const response = await api.post(`/api/models/${payload.modelId}/audit`, {
-      action: payload.reviewStatus,
-      comment: payload.reviewComment
-    })
-    return unwrap(response)
-  } catch (error) {
-    handleAdminError(error, '更新审核状态失败')
-  }
+export async function updateDatasetReviewStatus(p) { 
+  return api.post(`/api/datasets/${p.datasetId}/audit`, { 
+    status: mapStatusToBackend(p.reviewStatus), 
+    rejection_reason: p.reviewComment 
+  }) 
 }
 
-// 3. 更新模型公开状态 
-export async function updateModelPublishStatus(payload) {
-  try {
-     if (payload.publishStatus === 'OFFLINE' || payload.publishStatus === 'PRIVATE') {
-      const response = await api.post(`/api/models/${payload.modelId}/take-down`)
-      return unwrap(response)
-    } else {
-      // 占位，待后端提供重新上架接口
-      const response = await api.post(`/api/models/${payload.modelId}/publish`)
-      return unwrap(response)
-    }
-  } catch (error) {
-    handleAdminError(error, '更新公开状态失败')
-  }
+export async function updateModelReviewStatus(p) { 
+  return api.post(`/api/models/${p.modelId}/audit`, { 
+    status: mapStatusToBackend(p.reviewStatus), 
+    rejection_reason: p.reviewComment 
+  }) 
 }
 
-// 4. 更新模型分类和标签 
-export async function updateModelMeta(payload) {
-  try {
-    // 占位，待后端提供修改标签接口
-    const response = await api.put(`/api/models/${payload.modelId}/meta`, {
-      category: payload.category,
-      tags: payload.tags
-    })
-    return unwrap(response)
-  } catch (error) {
-    handleAdminError(error, '更新分类与标签失败')
-  }
+export async function updateDatasetMeta(p) { 
+  return api.put(`/api/datasets/${p.datasetId}`, { category: p.category, tags: p.tags }) 
+}
+
+export async function updateModelMeta(p) { 
+  return api.put(`/api/models/${p.modelId}`, { category: p.category, tags: p.tags }) 
+}
+
+export async function updateDatasetPublishStatus(p) { 
+  return api.post(`/api/datasets/${p.datasetId}/${p.publishStatus === 'OFFLINE' ? 'take-down' : 'publish'}`) 
+}
+
+export async function updateModelPublishStatus(p) { 
+  return api.post(`/api/models/${p.modelId}/${p.publishStatus === 'OFFLINE' ? 'take-down' : 'publish'}`) 
 }

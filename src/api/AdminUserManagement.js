@@ -20,7 +20,7 @@ export async function fetchUserList(filters) {
   try {
     const params = {
       page: 1,
-      page_size: 1000
+      page_size: 100 // 【关键修改】：将 1000 改为 100，避免触发后端 422 验证错误
     }
     
     if (filters.username) params.username = filters.username
@@ -30,11 +30,13 @@ export async function fetchUserList(filters) {
 
     const response = await api.get('/api/admin/users', { params })
     
-    // 【关键修复点】：axios把后端返回的JSON包在response.data里
-    const responseData = response.data
+    // 【优化提取逻辑】：兼容可能存在的 data 包裹层
+    const responseData = response.data?.data !== undefined ? response.data.data : response.data
 
-    // 必须从 responseData.list 里取出数组才能进行 map 遍历！
-    const formattedList = responseData.list.map(user => ({
+    // 【关键修改】：增加 || [] 防止 responseData.list 为空时 map 报错白屏
+    const rawList = responseData.list || responseData || []
+    
+    const formattedList = rawList.map(user => ({
       id: user.id,
       username: user.username,
       email: user.email || '未填写',
@@ -45,9 +47,10 @@ export async function fetchUserList(filters) {
 
     return {
       list: formattedList,
-      total: responseData.total
+      total: responseData.total || rawList.length
     }
   } catch (error) {
+    console.error("Fetch User List Error:", error)
     throw new Error('获取用户列表失败，请检查网络或管理员权限')
   }
 }
@@ -56,7 +59,7 @@ export async function fetchUserList(filters) {
 export async function updateUserRole({ userId, role }) {
   try {
     const response = await api.put(`/api/admin/users/${userId}/role`, { role: role })
-    return response.data
+    return response.data?.data !== undefined ? response.data.data : response.data
   } catch (error) {
     throw new Error('角色修改失败')
   }
@@ -67,7 +70,7 @@ export async function updateUserStatus({ userId, status }) {
   try {
     const numericStatus = status === 'enabled' ? 1 : 0
     const response = await api.patch(`/api/admin/users/${userId}/status`, { status: numericStatus })
-    return response.data
+    return response.data?.data !== undefined ? response.data.data : response.data
   } catch (error) {
     throw new Error('状态修改失败')
   }
