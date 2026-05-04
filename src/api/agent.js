@@ -15,6 +15,7 @@ agentApi.interceptors.request.use((config) => {
 })
 
 const unwrap = (response) => response.data?.data ?? response.data
+const PARSE_ENDPOINTS = ['/api/agent/tasks/parse', '/api/agent/parse', '/api/tasks/parse']
 
 const handleAgentError = (error, fallback) => {
   const detail = error.response?.data?.detail || error.response?.data?.message
@@ -31,17 +32,43 @@ const handleAgentError = (error, fallback) => {
   throw new Error(fallback)
 }
 
-export const uploadAgentDataset = async (file) => {
+export const uploadAgentDataset = async (file, onProgress) => {
   const form = new FormData()
   form.append('file', file)
   try {
     const response = await agentApi.post('/api/agent/datasets/upload', form, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (event) => {
+        if (!onProgress) return
+        const percent = event.total ? Math.round((event.loaded * 100) / event.total) : 0
+        onProgress(percent, event)
+      }
     })
     return unwrap(response)
   } catch (error) {
     handleAgentError(error, '数据集上传失败')
   }
+}
+
+export const parseAgentTaskDescription = async (taskDescription) => {
+  const payload = {
+    task_description: taskDescription,
+    requirement_text: taskDescription,
+    text: taskDescription
+  }
+  let lastError = null
+  for (const endpoint of PARSE_ENDPOINTS) {
+    try {
+      const response = await agentApi.post(endpoint, payload)
+      return unwrap(response)
+    } catch (error) {
+      lastError = error
+      const status = error.response?.status
+      if (status === 404 || status === 405) continue
+      break
+    }
+  }
+  throw lastError || new Error('需求解析接口暂不可用')
 }
 
 export const fetchDatasetPreview = async (datasetId) => {
@@ -158,6 +185,16 @@ export const fetchAgentCode = async (taskId) => {
     return unwrap(response)
   } catch (error) {
     handleAgentError(error, '生成代码加载失败')
+  }
+}
+
+export const downloadAgentTaskArtifacts = async (taskId) => {
+  try {
+    return await agentApi.get(`/api/agent/tasks/${taskId}/download`, {
+      responseType: 'blob'
+    })
+  } catch (error) {
+    handleAgentError(error, '任务产物下载失败')
   }
 }
 

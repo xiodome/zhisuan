@@ -1,21 +1,21 @@
 :root {
-  --zs-bg: #111111;
-  --zs-sidebar: #171717;
-  --zs-panel: #1f1f1f;
-  --zs-panel-soft: #2b2b2b;
-  --zs-elevated: #303030;
-  --zs-text: #f4f4f4;
-  --zs-muted: #b4b4b4;
-  --zs-subtle: #7d7d7d;
-  --zs-border: #3a3a3a;
-  --zs-border-strong: #555555;
+  --zs-bg: #1a1f29;
+  --zs-sidebar: #222a37;
+  --zs-panel: #2b3546;
+  --zs-panel-soft: #344157;
+  --zs-elevated: #41506a;
+  --zs-text: #f2f5fb;
+  --zs-muted: #aab3c5;
+  --zs-subtle: #828ca1;
+  --zs-border: #4c5a73;
+  --zs-border-strong: #647390;
   --zs-accent: #ffffff;
   --zs-success: #7dd3a7;
   --zs-warning: #f0c36a;
   --zs-danger: #ff8a8a;
   --zs-radius: 18px;
   --zs-radius-sm: 12px;
-  --zs-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+  --zs-shadow: 0 20px 72px rgba(0, 0, 0, 0.28);
   --zs-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Microsoft YaHei", sans-serif;
 
@@ -184,7 +184,7 @@ select {
 .el-textarea__inner,
 .el-select__wrapper {
   border-radius: var(--zs-radius-sm) !important;
-  background: #121212 !important;
+  background: var(--zs-panel-soft) !important;
   color: var(--zs-text) !important;
   box-shadow: 0 0 0 1px var(--zs-border) inset !important;
 }
@@ -198,7 +198,7 @@ select {
 .el-input__wrapper.is-focus,
 .el-textarea__inner:focus,
 .el-select__wrapper.is-focused {
-  box-shadow: 0 0 0 1px #8a8a8a inset !important;
+  box-shadow: 0 0 0 1px var(--zs-border-strong) inset !important;
 }
 
 .el-input__inner,
@@ -224,19 +224,20 @@ select {
 }
 
 .el-segmented {
-  --el-segmented-bg-color: #121212;
+  --el-segmented-bg-color: var(--zs-panel-soft);
   --el-segmented-item-selected-bg-color: #f4f4f4;
   --el-segmented-item-selected-color: #111111;
-  --el-segmented-item-hover-bg-color: #2f2f2f;
+  --el-segmented-item-hover-bg-color: var(--zs-elevated);
   --el-segmented-item-hover-color: var(--zs-text);
-  --el-segmented-item-active-bg-color: #3a3a3a;
+  --el-segmented-item-active-bg-color: var(--zs-elevated);
   padding: 4px !important;
   border: 1px solid var(--zs-border) !important;
   border-radius: 999px !important;
-  background: #121212 !important;
+  background: var(--zs-panel-soft) !important;
 }
 
 .el-segmented__item {
+  border: 1px solid transparent;
   border-radius: 999px !important;
   color: var(--zs-muted) !important;
   font-weight: 620;
@@ -251,7 +252,20 @@ select {
 }
 
 .el-segmented__item.is-selected {
+  border-color: var(--zs-border-strong) !important;
   color: #111111 !important;
+}
+
+.el-popover {
+  border: 1px solid var(--zs-border) !important;
+  background: var(--zs-panel) !important;
+  color: var(--zs-text) !important;
+  box-shadow: var(--zs-shadow) !important;
+}
+
+.el-popover.el-popper .el-popper__arrow::before {
+  border: 1px solid var(--zs-border) !important;
+  background: var(--zs-panel) !important;
 }
 
 .el-overlay {
@@ -331,8 +345,8 @@ select {
 .el-table {
   --el-table-bg-color: var(--zs-panel);
   --el-table-tr-bg-color: var(--zs-panel);
-  --el-table-header-bg-color: #181818;
-  --el-table-row-hover-bg-color: #292929;
+  --el-table-header-bg-color: var(--zs-panel-soft);
+  --el-table-row-hover-bg-color: var(--zs-elevated);
   --el-table-border-color: var(--zs-border);
   --el-table-text-color: var(--zs-text);
   --el-table-header-text-color: var(--zs-muted);
@@ -382,16 +396,16 @@ select {
 .el-tag.el-tag--info,
 .el-tag.el-tag--warning,
 .el-tag.el-tag--primary {
-  --el-tag-bg-color: #242424;
+  --el-tag-bg-color: var(--zs-panel-soft);
   --el-tag-border-color: var(--zs-border-strong);
   --el-tag-text-color: var(--zs-text);
-  background: #242424 !important;
+  background: var(--zs-panel-soft) !important;
   border-color: var(--zs-border-strong) !important;
   color: var(--zs-text) !important;
 }
 
 .el-tag.el-tag--dark {
-  --el-tag-bg-color: #303030;
+  --el-tag-bg-color: var(--zs-elevated);
   --el-tag-border-color: var(--zs-border-strong);
   --el-tag-text-color: var(--zs-text);
 }
@@ -399,7 +413,7 @@ select {
 .el-upload-dragger {
   border-radius: var(--zs-radius) !important;
   border-color: var(--zs-border-strong) !important;
-  background: #151515 !important;
+  background: var(--zs-panel-soft) !important;
 }
 
 .el-upload__text,
