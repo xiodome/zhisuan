@@ -195,6 +195,7 @@
             <el-button plain :class="{ active: artifactMode === 'report' }" :disabled="!currentTaskId" @click="loadReport">报告</el-button>
             <el-button plain :class="{ active: artifactMode === 'code' }" :disabled="!currentTaskId || !canReview" @click="loadCode">代码</el-button>
             <el-button plain :disabled="!currentReport" @click="exportReportJson">导出报告 JSON</el-button>
+            <el-button plain :disabled="!currentTaskId" @click="downloadReportMarkdown">下载 Markdown</el-button>
             <el-button
               v-if="artifactMode === 'code'"
               type="primary"
@@ -475,6 +476,7 @@ import { ElMessage } from 'element-plus'
 import { useUserStore } from '../store/user'
 import {
   createAgentTask,
+  downloadAgentReportMarkdown,
   fetchAgentCode,
   fetchAgentProgress,
   fetchAgentReport,
@@ -820,6 +822,16 @@ const downloadJson = (value, filename) => {
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
 }
+const downloadBlob = (blob, filename) => {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
 
 const syncTaskState = (task) => {
   if (!task) return
@@ -1146,6 +1158,16 @@ const exportPredictionJson = () => {
 const exportReportJson = () => {
   if (!currentReport.value) return ElMessage.warning('请先加载报告')
   downloadJson(currentReport.value, `${currentTaskId.value || 'task'}_report.json`)
+}
+
+const downloadReportMarkdown = async () => {
+  if (!currentTaskId.value) return ElMessage.warning('请先选择任务')
+  try {
+    const blob = await downloadAgentReportMarkdown(currentTaskId.value)
+    downloadBlob(blob, `${currentTaskId.value}_report.md`)
+  } catch (error) {
+    ElMessage.error(error.message || 'Markdown 报告下载失败')
+  }
 }
 
 const runPrediction = async () => {

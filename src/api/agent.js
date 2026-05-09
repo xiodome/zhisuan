@@ -152,6 +152,17 @@ export const fetchAgentReport = async (taskId) => {
   }
 }
 
+export const downloadAgentReportMarkdown = async (taskId) => {
+  try {
+    const response = await agentApi.get(`/api/agent/tasks/${taskId}/report.md`, {
+      responseType: 'blob'
+    })
+    return response.data
+  } catch (error) {
+    handleAgentError(error, 'Markdown 报告下载失败')
+  }
+}
+
 export const fetchAgentCode = async (taskId) => {
   try {
     const response = await agentApi.get(`/api/agent/tasks/${taskId}/code`)
