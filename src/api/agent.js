@@ -161,6 +161,15 @@ export const fetchAgentCode = async (taskId) => {
   }
 }
 
+export const updateAgentCode = async (taskId, payload) => {
+  try {
+    const response = await agentApi.put(`/api/agent/tasks/${taskId}/code`, payload)
+    return unwrap(response)
+  } catch (error) {
+    handleAgentError(error, '代码保存失败')
+  }
+}
+
 export const fetchAgentDemo = async (taskId) => {
   try {
     const response = await agentApi.get(`/api/agent/tasks/${taskId}/demo`)

@@ -195,6 +195,15 @@
             <el-button plain :class="{ active: artifactMode === 'report' }" :disabled="!currentTaskId" @click="loadReport">报告</el-button>
             <el-button plain :class="{ active: artifactMode === 'code' }" :disabled="!currentTaskId || !canReview" @click="loadCode">代码</el-button>
             <el-button plain :disabled="!currentReport" @click="exportReportJson">导出报告 JSON</el-button>
+            <el-button
+              v-if="artifactMode === 'code'"
+              type="primary"
+              :disabled="!artifactText || !canReview"
+              :loading="savingCode"
+              @click="saveCodeChanges"
+            >
+              保存代码修改
+            </el-button>
           </div>
 
           <div v-if="artifactMode === 'report' && currentReport" class="report-visual">
@@ -326,6 +335,14 @@
             </div>
           </div>
 
+          <el-input
+            v-else-if="artifactMode === 'code'"
+            v-model="artifactText"
+            class="artifact-code-editor"
+            type="textarea"
+            :autosize="{ minRows: 18, maxRows: 36 }"
+            spellcheck="false"
+          />
           <pre v-else class="artifact-box">{{ artifactText || '任务完成后查看产物。' }}</pre>
         </section>
       </template>
@@ -469,6 +486,7 @@ import {
   resumeAgentTask,
   runAgentTask,
   submitAgentReview,
+  updateAgentCode,
   uploadAgentDataset
 } from '../api/agent'
 
@@ -497,6 +515,7 @@ const creating = ref(false)
 const running = ref(false)
 const reviewing = ref(false)
 const predicting = ref(false)
+const savingCode = ref(false)
 const createDialogVisible = ref(false)
 const previewDialogVisible = ref(false)
 const reviewDialogVisible = ref(false)
@@ -1050,6 +1069,27 @@ const loadCode = async () => {
   }
 }
 
+const saveCodeChanges = async () => {
+  if (!currentTaskId.value) return ElMessage.warning('请先选择任务')
+  if (!artifactText.value.trim()) return ElMessage.warning('代码内容不能为空')
+  savingCode.value = true
+  try {
+    const code = await updateAgentCode(currentTaskId.value, {
+      python_code: artifactText.value,
+      comment: '前端保存代码修改'
+    })
+    artifactText.value =
+      typeof code === 'string' ? code : code?.python_code || code?.code || JSON.stringify(code, null, 2)
+    const task = await fetchAgentTask(currentTaskId.value)
+    syncTaskState(task)
+    ElMessage.success('代码已通过语法校验并保存')
+  } catch (error) {
+    ElMessage.error(error.message || '代码保存失败')
+  } finally {
+    savingCode.value = false
+  }
+}
+
 const fillPredictionSample = () => {
   const rows = previewRows.value.length ? previewRows.value.slice(0, 8) : [{}]
   const target = currentReport.value?.target_column || currentTask.value?.target_column
@@ -1596,6 +1636,20 @@ onBeforeUnmount(() => {
 
 .artifact-box {
   height: 360px;
+}
+
+.artifact-code-editor {
+  margin-top: 12px;
+}
+
+.artifact-code-editor :deep(.el-textarea__inner) {
+  border-radius: 16px;
+  border-color: #343434;
+  color: #e8e8e8;
+  background: #101010;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .report-visual {
