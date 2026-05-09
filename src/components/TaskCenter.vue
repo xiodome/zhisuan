@@ -334,6 +334,28 @@
                 </div>
               </div>
             </div>
+
+            <div v-if="reportExternalReferences.length" class="report-block">
+              <div class="report-block-head">
+                <div>
+                  <strong>联网参考</strong>
+                  <span>Agent 在模型规划前检索到的相似建模资料。</span>
+                </div>
+              </div>
+              <div class="reference-list">
+                <a
+                  v-for="item in reportExternalReferences"
+                  :key="item.url || item.title"
+                  :href="item.url"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="reference-item"
+                >
+                  <strong>{{ item.title || '参考资料' }}</strong>
+                  <span>{{ item.summary || item.url }}</span>
+                </a>
+              </div>
+            </div>
           </div>
 
           <el-input
@@ -724,6 +746,10 @@ const reportPreprocessText = computed(
 const reportPlannedCandidates = computed(() => {
   const candidates = reportModelPlan.value?.candidate_models
   return Array.isArray(candidates) ? candidates : []
+})
+const reportExternalReferences = computed(() => {
+  const items = currentReport.value?.external_references || reportModelPlan.value?.external_references || []
+  return Array.isArray(items) ? items : []
 })
 const reportRecommendations = computed(() => {
   const items = currentReport.value?.recommendations || []
@@ -1815,6 +1841,28 @@ onBeforeUnmount(() => {
   color: #e8e8e8;
   background: #181818;
   font-size: 13px;
+  line-height: 1.6;
+}
+
+.reference-list {
+  display: grid;
+  gap: 10px;
+}
+
+.reference-item {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #343434;
+  border-radius: 14px;
+  color: #e8e8e8;
+  background: #181818;
+  text-decoration: none;
+}
+
+.reference-item span {
+  color: #a8a8a8;
+  font-size: 12px;
   line-height: 1.6;
 }
 
