@@ -208,6 +208,16 @@ export const fetchAgentReport = async (taskId) => {
   }
 }
 
+export const downloadAgentReportMarkdown = async (taskId) => {
+  try {
+    const response = await agentApi.get(`/api/agent/tasks/${taskId}/report.md`, {
+      responseType: 'blob'
+    })
+    return response.data
+  } catch (error) {
+    handleAgentError(error, 'Markdown 报告下载失败')
+  }
+}
 export const fetchAgentCode = async (taskId) => {
   try {
     const response = await agentApi.get(`/api/agent/tasks/${taskId}/code`)
@@ -217,6 +227,14 @@ export const fetchAgentCode = async (taskId) => {
   }
 }
 
+export const updateAgentCode = async (taskId, payload) => {
+  try {
+    const response = await agentApi.put(`/api/agent/tasks/${taskId}/code`, payload)
+    return unwrap(response)
+  } catch (error) {
+    handleAgentError(error, '代码保存失败')
+  }
+}
 export const fetchAgentCodeFile = async (codePath) => {
   try {
     const normalizedPath = String(codePath || '').trim().replace(/^\/+/, '')
@@ -315,3 +333,4 @@ export const fetchAdminAgentResourceSummary = async () => {
     handleAgentError(error, '资源监控摘要加载失败')
   }
 }
+

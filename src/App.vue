@@ -455,6 +455,12 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+}
+
+.content-surface > * {
+  flex: 1;
+  min-height: 0;
 }
 
 @media (max-width: 920px) {

@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="agent-console">
     <aside class="task-rail">
       <el-button type="primary" class="new-task-button-v2" @click="openCreateDialog">
@@ -7,9 +7,9 @@
       </el-button>
 
       <div class="rail-label">最近任务</div>
-      <div class="task-list">
+      <div ref="taskListRef" class="task-list" @scroll.passive="onTaskListScroll">
         <button
-          v-for="task in taskList"
+          v-for="task in visibleTaskList"
           :key="task.task_id"
           class="task-item"
           :class="{ active: task.task_id === currentTaskId }"
@@ -22,6 +22,17 @@
           </span>
         </button>
         <div v-if="!taskList.length" class="rail-empty">暂无任务</div>
+        <div v-else-if="hasMoreTasks" class="task-list-load">
+          <el-button
+            text
+            size="small"
+            :loading="loadingMoreTaskItems"
+            class="task-list-load-btn"
+            @click="loadMoreTaskItems"
+          >
+            加载更多任务
+          </el-button>
+        </div>
       </div>
     </aside>
 
@@ -389,19 +400,55 @@
                 </div>
               </div>
             </div>
+
+            <div v-if="reportExternalReferences.length" class="report-block">
+              <div class="report-block-head">
+                <div>
+                  <strong>联网参考</strong>
+                  <span>Agent 在模型规划阶段检索到的外部参考资料。</span>
+                </div>
+              </div>
+              <div class="reference-list">
+                <component
+                  v-for="item in reportExternalReferences"
+                  :is="item.url ? 'a' : 'div'"
+                  :key="item.id"
+                  :href="item.url || undefined"
+                  :target="item.url ? '_blank' : undefined"
+                  :rel="item.url ? 'noreferrer' : undefined"
+                  class="reference-item"
+                >
+                  <strong>{{ item.title || (item.url ? '参考资料' : '参考说明') }}</strong>
+                  <span>{{ item.summary || item.url || '未提供摘要' }}</span>
+                </component>
+              </div>
+            </div>
           </div>
 
           <div v-else-if="artifactMode === 'code'" class="code-visual">
             <div class="code-visual-head">
               <span>Operation Agent 生成代码</span>
-              <small>默认显示约 50 行，可拖动右下角调整高度</small>
+              <div class="code-head-actions">
+                <small>默认显示约 50 行，可拖动右下角调整高度</small>
+                <el-button
+                  v-if="canReview"
+                  type="primary"
+                  plain
+                  size="small"
+                  :disabled="!currentTaskId || !artifactText.trim()"
+                  :loading="savingCode"
+                  @click="saveCodeChanges"
+                >
+                  保存代码修改
+                </el-button>
+              </div>
             </div>
             <div class="code-resize-shell" :style="{ height: `${artifactCodeEditorHeight}px` }">
               <vue-monaco-editor
                 v-model:value="artifactText"
                 theme="vs-dark"
                 language="python"
-                :options="{ readOnly: true, minimap: { enabled: false }, automaticLayout: true, scrollBeyondLastLine: false }"
+                :options="{ readOnly: !canReview, minimap: { enabled: false }, automaticLayout: true, scrollBeyondLastLine: false }"
                 height="100%"
               />
             </div>
@@ -692,6 +739,7 @@ use([TooltipComponent, GridComponent, TitleComponent, BarChart, CanvasRenderer])
 import {
   cancelAgentTask,
   createAgentTask,
+  downloadAgentReportMarkdown,
   downloadAgentTaskArtifacts,
   fetchAgentCode,
   fetchAgentCodeFile,
@@ -707,11 +755,13 @@ import {
   resumeAgentTask,
   runAgentTask,
   submitAgentReview,
+  updateAgentCode,
   uploadAgentDataset
 } from '../api/agent'
 
 const userStore = useUserStore()
 const taskList = ref([])
+const taskListRef = ref(null)
 const currentTask = ref(null)
 const currentTaskId = ref('')
 const datasetId = ref(null)
@@ -737,6 +787,7 @@ const running = ref(false)
 const reviewing = ref(false)
 const predicting = ref(false)
 const cancelling = ref(false)
+const savingCode = ref(false)
 const createDialogVisible = ref(false)
 const previewDialogVisible = ref(false)
 const reviewDialogVisible = ref(false)
@@ -773,6 +824,9 @@ const artifactCodeEditorHeight = ref(920)
 const reviewCodeEditorHeight = ref(760)
 const themeTick = ref(0)
 let themeObserver = null
+const taskListVisibleCount = ref(24)
+const taskListPageSize = 24
+const loadingMoreTaskItems = ref(false)
 
 const canReview = computed(() => ['ADMIN', 'DEVELOPER'].includes(userStore.role))
 const hitlOptions = [
@@ -872,6 +926,8 @@ const pagedPredictionRows = computed(() => {
   return predictionRows.value.slice(start, start + predictionPageSize)
 })
 const predictionTableHeight = computed(() => predictionTableHeaderHeight + predictionPageSize * predictionRowHeight)
+const visibleTaskList = computed(() => taskList.value.slice(0, taskListVisibleCount.value))
+const hasMoreTasks = computed(() => visibleTaskList.value.length < taskList.value.length)
 
 const parseReviewColumnOptions = computed(() => {
   const options = new Set()
@@ -1024,6 +1080,33 @@ const reportSelectionReason = computed(() => reportData.value?.selection_reason 
 const reportNumericColumns = computed(() => normalizeColumnList(reportData.value?.numeric_columns))
 const reportRecommendations = computed(() => Array.isArray(currentReport.value?.recommendations) ? currentReport.value.recommendations : [])
 const reportRiskNotes = computed(() => Array.isArray(currentReport.value?.risk_notes) ? currentReport.value.risk_notes : [])
+const reportExternalReferences = computed(() => {
+  const candidates = [
+    currentReport.value?.external_references,
+    currentReport.value?.references,
+    currentReport.value?.sources,
+    currentReport.value?.citations,
+    currentReport.value?.model_plan?.external_references,
+    currentReport.value?.model_plan?.references,
+    currentReport.value?.model_plan?.llm_output?.external_references,
+    currentReport.value?.model_plan?.llm_output?.references,
+    reportModelPlan.value?.external_references,
+    reportModelPlan.value?.references,
+    reportModelPlan.value?.llm_output?.external_references,
+    reportModelPlan.value?.llm_output?.references
+  ]
+
+  const merged = candidates.flatMap((candidate) => normalizeExternalReferences(candidate))
+  const deduped = []
+  const seen = new Set()
+  merged.forEach((item) => {
+    const key = `${item.url || ''}|${item.title || ''}|${item.summary || ''}`
+    if (seen.has(key)) return
+    seen.add(key)
+    deduped.push(item)
+  })
+  return deduped
+})
 const reportFeatureImportance = computed(() => normalizeFeatureImportance(reportModelTraining.value?.feature_importance || currentReport.value?.feature_importance))
 
 const stages = computed(() => {
@@ -1204,6 +1287,36 @@ const normalizeFeatureImportance = (input) => {
   }
   return []
 }
+const normalizeExternalReferences = (input) => {
+  const list = Array.isArray(input) ? input : input && typeof input === 'object' ? Object.values(input) : []
+  return list
+    .map((item, index) => {
+      if (typeof item === 'string') {
+        const text = item.trim()
+        const isUrl = /^https?:\/\//i.test(text)
+        return {
+          id: `ref_str_${index}_${text.slice(0, 40)}`,
+          title: '',
+          url: isUrl ? text : '',
+          summary: isUrl ? '' : text
+        }
+      }
+      if (!item || typeof item !== 'object') return null
+      const url = String(
+        item.url || item.link || item.href || item.source_url || item.document_url || item.web_url || ''
+      ).trim()
+      const title = String(item.title || item.name || item.source || item.query || '').trim()
+      const summary = String(item.summary || item.snippet || item.desc || item.abstract || '').trim()
+      if (!url && !title && !summary) return null
+      return {
+        id: `ref_obj_${index}_${(url || title || summary).slice(0, 40)}`,
+        title,
+        url,
+        summary
+      }
+    })
+    .filter(Boolean)
+}
 const normalizeReviewPayload = (review, reviewStage) => {
   const payload = review?.payload || review?.review_payload || review?.data || {}
   if (reviewStage === 'parse_review') {
@@ -1286,6 +1399,13 @@ const formatPredictionValue = (value) => value === undefined || value === null |
 const formatReportValue = (value) => value === undefined || value === null || value === '' ? '-' : typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(4) : String(value)
 const downloadJson = (value, filename) => {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url)
+}
+const downloadBlob = (blob, filename) => {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -1400,11 +1520,35 @@ const cancelSelectedTask = async () => {
   } catch (error) { ElMessage.error('取消失败') } finally { cancelling.value = false }
 }
 
+const resetVisibleTaskItems = () => {
+  taskListVisibleCount.value = Math.min(taskListPageSize, taskList.value.length)
+}
+
+const loadMoreTaskItems = () => {
+  if (loadingMoreTaskItems.value || !hasMoreTasks.value) return
+  loadingMoreTaskItems.value = true
+  const nextCount = Math.min(taskList.value.length, taskListVisibleCount.value + taskListPageSize)
+  taskListVisibleCount.value = nextCount
+  requestAnimationFrame(() => {
+    loadingMoreTaskItems.value = false
+  })
+}
+
+const onTaskListScroll = (event) => {
+  const container = event?.target
+  if (!container || !hasMoreTasks.value) return
+  const reachedBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 24
+  if (reachedBottom) loadMoreTaskItems()
+}
+
 const loadTasks = async (selectLatest = false, silent = false) => {
   loadingTasks.value = true
   try {
     const result = await fetchAgentTasks()
     taskList.value = (Array.isArray(result) ? result : result?.list || []).map(t => ({ ...t, task_id: String(normalizeTaskId(t)) }))
+    if (taskListVisibleCount.value < taskListPageSize || taskListVisibleCount.value > taskList.value.length) {
+      resetVisibleTaskItems()
+    }
     if (selectLatest && taskList.value.length && !currentTaskId.value) selectTask(taskList.value[0].task_id)
   } catch (error) { if (!silent) ElMessage.error('列表加载失败') } finally { loadingTasks.value = false }
 }
@@ -1617,6 +1761,31 @@ const loadCode = async () => {
   } catch (error) { ElMessage.error('代码加载失败') }
 }
 
+const saveCodeChanges = async () => {
+  if (!canReview.value) return ElMessage.warning('当前角色没有代码保存权限')
+  if (!currentTaskId.value) return ElMessage.warning('请先选择任务')
+  const code = String(artifactText.value || '').trimEnd()
+  if (!code.trim()) return ElMessage.warning('代码内容不能为空')
+
+  savingCode.value = true
+  try {
+    const saved = await updateAgentCode(currentTaskId.value, {
+      python_code: code,
+      comment: '前端保存代码修改'
+    })
+    const resolved = await resolveCodePayloadText(saved)
+    if (resolved.code) artifactText.value = resolved.code
+    else artifactText.value = code
+    const latestTask = await fetchAgentTask(currentTaskId.value)
+    syncTaskState(latestTask)
+    ElMessage.success('代码已保存并通过后端校验')
+  } catch (error) {
+    ElMessage.error(error.message || '代码保存失败')
+  } finally {
+    savingCode.value = false
+  }
+}
+
 const switchArtifactMode = async (nextMode) => {
   if (nextMode === 'report') {
     if (!currentReport.value) await loadReport()
@@ -1708,7 +1877,7 @@ const handleExportCommand = async (command) => {
     return
   }
   if (command === 'md') {
-    downloadReportMD()
+    await downloadReportMD()
   }
 }
 
@@ -1724,8 +1893,7 @@ const downloadReportPDF = () => {
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
   }).save()
 }
-const downloadReportMD = () => {
-  const mdContent = `
+const buildReportMarkdownFallback = () => `
 # 智算模型执行报告
 **任务 ID**: ${currentTaskId.value}
 **任务类型**: ${reportTaskType.value}
@@ -1740,13 +1908,19 @@ ${currentReport.value?.summary || '暂无摘要'}
 
 ## 3. 使用建议
 ${reportRecommendations.value.map(r => '- ' + r).join('\n')}
-  `
-  const blob = new Blob([mdContent.trim()], { type: 'text/markdown;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `Report_${currentTaskId.value}.md`
-  document.body.appendChild(link); link.click(); URL.revokeObjectURL(url)
+`
+
+const downloadReportMD = async () => {
+  if (!currentTaskId.value) return ElMessage.warning('请先选择任务')
+  try {
+    const blob = await downloadAgentReportMarkdown(currentTaskId.value)
+    downloadBlob(blob, `Report_${currentTaskId.value}.md`)
+  } catch (error) {
+    const mdContent = buildReportMarkdownFallback()
+    const blob = new Blob([mdContent.trim()], { type: 'text/markdown;charset=utf-8' })
+    downloadBlob(blob, `Report_${currentTaskId.value}.md`)
+    ElMessage.warning('后端 Markdown 导出失败，已回退到前端生成版本')
+  }
 }
 
 const startRunPolling = () => {
@@ -1828,7 +2002,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .agent-console {
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
   line-height: 1.68;
@@ -1840,6 +2015,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 12px;
   background: var(--zs-sidebar);
+  min-height: 0;
 }
 .rail-label {
   color: var(--zs-muted);
@@ -1851,8 +2027,16 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
 }
-.agent-main { padding: 34px 46px; overflow: auto; }
+.agent-main {
+  min-height: 0;
+  padding: 34px 46px 84px;
+  overflow: auto;
+}
 .task-item {
   width: 100%;
   text-align: left;
@@ -1884,6 +2068,27 @@ onBeforeUnmount(() => {
   margin-top: 7px;
   color: var(--zs-muted);
   font-size: 12px;
+}
+.task-list-load {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 4px;
+}
+.task-list-load-btn {
+  color: var(--zs-muted);
+}
+.task-list-load-btn:hover {
+  color: var(--zs-text);
+}
+.task-list::-webkit-scrollbar {
+  width: 8px;
+}
+.task-list::-webkit-scrollbar-thumb {
+  background: var(--zs-border);
+  border-radius: 999px;
+}
+.task-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .new-task-button-v2 {
@@ -2127,6 +2332,35 @@ onBeforeUnmount(() => {
   font-size: 13px;
   line-height: 1.64;
 }
+.reference-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+.reference-item {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--zs-border);
+  border-radius: 12px;
+  background: var(--zs-panel-soft);
+  color: var(--zs-text);
+  text-decoration: none;
+}
+.reference-item:hover {
+  border-color: var(--zs-border-strong);
+}
+.reference-item[href] {
+  cursor: pointer;
+}
+.reference-item strong {
+  font-size: 13px;
+}
+.reference-item span {
+  color: var(--zs-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
 
 .demo-tabs { margin-top: 10px; }
 .web-demo-form { padding: 18px; border: 1px solid var(--zs-border); border-radius: 12px; background: var(--zs-panel-soft); }
@@ -2223,6 +2457,11 @@ onBeforeUnmount(() => {
   background: var(--zs-panel-soft);
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.code-head-actions {
+  display: inline-flex;
   align-items: center;
   gap: 10px;
 }
