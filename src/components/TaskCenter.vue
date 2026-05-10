@@ -441,13 +441,23 @@
             <strong>{{ pendingReview.version || '-' }}</strong>
           </div>
         </div>
-        <pre class="review-payload">{{ formattedReview }}</pre>
+        <div v-if="isCodeReview" class="review-code-panel">
+          <div class="review-code-path">代码文件：{{ pendingReview.payload?.generated_code || '-' }}</div>
+          <el-input
+            v-model="reviewCodeText"
+            class="artifact-code-editor"
+            type="textarea"
+            :autosize="{ minRows: 16, maxRows: 32 }"
+            spellcheck="false"
+          />
+        </div>
+        <pre v-else class="review-payload">{{ formattedReview }}</pre>
 
         <el-form label-position="top">
           <el-form-item label="动作">
             <el-segmented v-model="reviewAction" :options="reviewActionOptions" />
           </el-form-item>
-          <el-form-item v-if="reviewAction === 'edit_and_continue'" label="补丁 JSON">
+          <el-form-item v-if="reviewAction === 'edit_and_continue' && !isCodeReview" label="补丁 JSON">
             <el-input
               v-model="patchText"
               type="textarea"
@@ -455,6 +465,9 @@
               placeholder='例如：{"target_column":"bought","model_type":"random_forest"}'
             />
           </el-form-item>
+          <div v-if="reviewAction === 'edit_and_continue' && isCodeReview" class="form-hint">
+            将上方代码编辑为希望继续执行的版本，提交后后端会先做 Python 语法校验，再保存为新版本代码。
+          </div>
           <el-form-item label="审核意见">
             <el-input v-model="reviewComment" type="textarea" :rows="3" placeholder="记录本次人工判断。" />
           </el-form-item>
@@ -551,6 +564,7 @@ const pendingReview = ref(null)
 const reviewAction = ref('approve')
 const reviewComment = ref('')
 const patchText = ref('')
+const reviewCodeText = ref('')
 let runPollTimer = null
 let listRefreshTimer = null
 
@@ -598,6 +612,7 @@ const canRunTask = computed(() => ['CREATED', 'READY_TO_RESUME'].includes(lifecy
 const runButtonText = computed(() => (lifecycleStatus.value === 'READY_TO_RESUME' ? '继续运行' : '运行'))
 const formattedReview = computed(() => JSON.stringify(pendingReview.value?.payload || pendingReview.value, null, 2))
 const reviewStageLabel = computed(() => reviewStageTitleMap[pendingReview.value?.review_stage] || pendingReview.value?.review_stage || '-')
+const isCodeReview = computed(() => pendingReview.value?.review_stage === 'code_review')
 const predictionColumns = computed(() => {
   const columns = new Set()
   predictionRows.value.forEach((row) => {
@@ -1040,11 +1055,16 @@ const openReviewDialog = async () => {
   reviewAction.value = 'approve'
   reviewComment.value = ''
   patchText.value = ''
+  reviewCodeText.value = pendingReview.value?.payload?.python_code || ''
   reviewDialogVisible.value = true
 }
 
 const parsePatch = () => {
   if (reviewAction.value !== 'edit_and_continue') return null
+  if (isCodeReview.value) {
+    if (!reviewCodeText.value.trim()) throw new Error('代码内容不能为空')
+    return { python_code: reviewCodeText.value }
+  }
   if (!patchText.value.trim()) return {}
   try {
     return JSON.parse(patchText.value)
@@ -1875,6 +1895,21 @@ onBeforeUnmount(() => {
 .review-body {
   display: grid;
   gap: 14px;
+}
+
+.review-code-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.review-code-path {
+  padding: 10px 12px;
+  border: 1px solid #343434;
+  border-radius: 12px;
+  color: #a8a8a8;
+  background: #111;
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .review-meta {
