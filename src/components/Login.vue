@@ -107,8 +107,19 @@ const handleRegister = async () => {
   align-items: center;
   justify-content: center;
   padding: 72px 24px;
-  background: #111111;
+  background: #222a37;
   color: #f4f4f4;
+  --zs-bg: #1a1f29;
+  --zs-sidebar: #222a37;
+  --zs-panel: #2b3546;
+  --zs-panel-soft: #344157;
+  --zs-elevated: #41506a;
+  --zs-text: #f2f5fb;
+  --zs-muted: #aab3c5;
+  --zs-subtle: #828ca1;
+  --zs-border: #4c5a73;
+  --zs-border-strong: #647390;
+  --zs-shadow: 0 20px 72px rgba(0, 0, 0, 0.28);
 }
 
 .platform-mark {

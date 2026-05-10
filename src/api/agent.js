@@ -16,6 +16,7 @@ agentApi.interceptors.request.use((config) => {
 
 const unwrap = (response) => response.data?.data ?? response.data
 const PARSE_ENDPOINTS = ['/api/agent/tasks/parse', '/api/agent/parse', '/api/tasks/parse']
+const HITL_FALLBACK_KEYS = ['hitl_stages', 'review_stages', 'review_nodes', 'human_review_stages']
 
 const handleAgentError = (error, fallback) => {
   const detail = error.response?.data?.detail || error.response?.data?.message
@@ -30,6 +31,27 @@ const handleAgentError = (error, fallback) => {
     throw new Error(detail)
   }
   throw new Error(fallback)
+}
+
+const buildCreateTaskPayloadCandidates = (payload) => {
+  const hitl = payload?.hitl
+  if (!Array.isArray(hitl)) return [payload]
+  const base = { ...payload }
+  delete base.hitl
+  const variants = [payload]
+  HITL_FALLBACK_KEYS.forEach((key) => {
+    variants.push({ ...base, [key]: hitl })
+  })
+  return variants
+}
+
+const shouldRetryCreateTaskPayload = (error) => {
+  const status = error.response?.status
+  if (![400, 422].includes(status)) return false
+  const detail = error.response?.data?.detail
+  const detailText = typeof detail === 'string' ? detail : JSON.stringify(detail || '')
+  const text = detailText.toLowerCase()
+  return text.includes('hitl') || text.includes('review') || text.includes('field required')
 }
 
 export const uploadAgentDataset = async (file, onProgress) => {
@@ -81,12 +103,19 @@ export const fetchDatasetPreview = async (datasetId) => {
 }
 
 export const createAgentTask = async (payload) => {
-  try {
-    const response = await agentApi.post('/api/agent/tasks', payload)
-    return unwrap(response)
-  } catch (error) {
-    handleAgentError(error, 'Agent 任务创建失败')
+  const candidates = buildCreateTaskPayloadCandidates(payload)
+  let lastError = null
+  for (let index = 0; index < candidates.length; index += 1) {
+    try {
+      const response = await agentApi.post('/api/agent/tasks', candidates[index])
+      return unwrap(response)
+    } catch (error) {
+      lastError = error
+      if (index < candidates.length - 1 && shouldRetryCreateTaskPayload(error)) continue
+      break
+    }
   }
+  handleAgentError(lastError, 'Agent 任务创建失败')
 }
 
 export const fetchAgentTasks = async () => {
@@ -185,6 +214,17 @@ export const fetchAgentCode = async (taskId) => {
     return unwrap(response)
   } catch (error) {
     handleAgentError(error, '生成代码加载失败')
+  }
+}
+
+export const fetchAgentCodeFile = async (codePath) => {
+  try {
+    const normalizedPath = String(codePath || '').trim().replace(/^\/+/, '')
+    if (!normalizedPath) throw new Error('代码路径为空')
+    const response = await agentApi.get(`/${normalizedPath}`, { responseType: 'text' })
+    return response.data
+  } catch (error) {
+    handleAgentError(error, '代码文件读取失败')
   }
 }
 

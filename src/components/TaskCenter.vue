@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="agent-console">
     <aside class="task-rail">
       <el-button type="primary" class="new-task-button-v2" @click="openCreateDialog">
@@ -51,11 +51,11 @@
           </div>
         </section>
 
-        <section class="task-card">
-          <div class="panel-head">
+        <section class="task-card task-desc-card">
+          <div class="panel-head task-desc-head">
             <div>
               <div class="panel-title">任务描述</div>
-              <div class="panel-subtitle">{{ currentTask?.task_description || '暂无描述' }}</div>
+              <div class="panel-subtitle task-desc-text">{{ currentTask?.task_description || '暂无描述' }}</div>
             </div>
             <div class="panel-actions">
               <el-button plain :disabled="!datasetId" @click="openPreviewDialog">
@@ -99,16 +99,16 @@
 
           <div class="progress-overview">
             <div class="progress-overview-item">
-              <span>当前智能体</span>
-              <strong>{{ currentStageTitle }}</strong>
+              <span class="overview-label">当前智能体</span>
+              <strong class="overview-value">{{ currentStageTitle }}</strong>
             </div>
             <div class="progress-overview-item">
-              <span>总体进度</span>
-              <strong>{{ overallProgress }}%</strong>
+              <span class="overview-label">总体进度</span>
+              <strong class="overview-value">{{ overallProgress }}%</strong>
             </div>
-            <div class="progress-overview-item">
-              <span>执行状态</span>
-              <strong>{{ lifecycleStatus }}</strong>
+            <div class="progress-overview-item" :class="`status-${String(lifecycleStatus || '').toLowerCase()}`">
+              <span class="overview-label">执行状态</span>
+              <strong class="overview-value">{{ lifecycleStatus }}</strong>
             </div>
           </div>
 
@@ -181,11 +181,13 @@
                   <el-icon><WarningFilled /></el-icon> {{ singlePredictError }}
                 </div>
               </div>
-              <div v-else class="modal-empty">正在加载模型特征...</div>
+              <div v-else class="modal-empty">
+                {{ demoLoading ? '正在加载模型特征...' : '未检测到可用特征列，请先刷新报告或在批量测试中导入样例。' }}
+              </div>
             </el-tab-pane>
 
             <el-tab-pane label="批量测试 (Batch)" name="batch">
-              <div class="panel-actions" style="margin-bottom: 12px; justify-content: flex-end;">
+              <div class="batch-head-actions">
                 <el-button plain @click="openPredictionJsonDialog">JSON 导入</el-button>
                 <el-button plain :disabled="!predictionRows.length" @click="addPredictionRow">新增行</el-button>
                 <el-button plain :disabled="!predictionRows.length" @click="exportPredictionJson">导出 JSON</el-button>
@@ -193,12 +195,22 @@
 
               <div v-if="predictionColumns.length" class="prediction-table-wrap">
                 <el-table :data="pagedPredictionRows" :height="predictionTableHeight">
-                  <el-table-column label="#" width="56">
+                  <el-table-column label="行号" width="88" align="center">
+                    <template #header>
+                      <div class="row-index-head">
+                        <el-tooltip content="# 表示样本行号" placement="top">
+                          <span class="row-index-head-mark">#</span>
+                        </el-tooltip>
+                        <span class="row-index-head-text">操作</span>
+                      </div>
+                    </template>
                     <template #default="{ row, $index }">
-                      <button class="row-delete-button" title="删除此行" @click="removePredictionRow(row.id)">
+                      <div class="row-index-cell">
                         <span class="row-index">{{ (predictionPage - 1) * predictionPageSize + $index + 1 }}</span>
-                        <el-icon class="row-delete-icon"><Close /></el-icon>
-                      </button>
+                        <button class="row-delete-button" title="删除此行" @click="removePredictionRow(row.id)">
+                          <el-icon class="row-delete-icon"><Close /></el-icon>
+                        </button>
+                      </div>
                     </template>
                   </el-table-column>
                   <el-table-column
@@ -250,24 +262,50 @@
           <div class="panel-head compact">
             <div>
               <div class="panel-title">任务产物</div>
-              <div class="panel-subtitle">报告、代码和任务产物。</div>
             </div>
           </div>
 
-          <div class="artifact-actions">
-            <el-button plain :class="{ active: artifactMode === 'report' }" :disabled="!currentTaskId" @click="loadReport">报告</el-button>
-            <el-button plain :class="{ active: artifactMode === 'code' }" :disabled="!currentTaskId || !canReview" @click="loadCode">代码</el-button>
-            <el-button plain :disabled="!currentTaskId || !canReview" @click="downloadTaskArtifacts">下载产物包</el-button>
-            <el-button plain :disabled="!currentReport" @click="exportReportJson">导出 JSON</el-button>
-            <el-button type="primary" plain :disabled="!currentReport" @click="downloadReportPDF">导出 PDF</el-button>
-            <el-button type="info" plain :disabled="!currentReport" @click="downloadReportMD">导出 MD</el-button>
+          <div class="artifact-toolbar">
+            <div class="artifact-view-switch">
+              <button
+                class="artifact-view-button"
+                :class="{ active: artifactMode === 'report' }"
+                :disabled="!currentTaskId"
+                @click="switchArtifactMode('report')"
+              >
+                报告
+              </button>
+              <button
+                class="artifact-view-button"
+                :class="{ active: artifactMode === 'code' }"
+                :disabled="!currentTaskId || !canReview"
+                @click="switchArtifactMode('code')"
+              >
+                代码
+              </button>
+            </div>
+
+            <el-dropdown trigger="click" @command="handleExportCommand">
+              <el-button plain type="primary" :disabled="!currentTaskId">
+                导出选项
+                <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="package" :disabled="!currentTaskId || !canReview">下载产物包</el-dropdown-item>
+                  <el-dropdown-item command="json" :disabled="!currentReport">导出 JSON</el-dropdown-item>
+                  <el-dropdown-item command="pdf" :disabled="!currentReport">导出 PDF</el-dropdown-item>
+                  <el-dropdown-item command="md" :disabled="!currentReport">导出 MD</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </div>
 
           <div v-if="artifactMode === 'report' && currentReport" class="report-visual" id="report-content">
             <div class="report-summary-grid">
               <div v-for="item in reportSummaryCards" :key="item.label" class="report-summary-card">
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
+                <span class="summary-label">{{ item.label }}</span>
+                <strong class="summary-value">{{ item.value }}</strong>
               </div>
             </div>
 
@@ -299,8 +337,8 @@
               <p v-else>暂无特征列信息。</p>
             </div>
 
-            <div v-if="reportFeatureImportance.length" class="report-section" style="height: 350px;">
-              <span style="margin-bottom: 10px; display: block;">特征重要性 (Feature Importance)</span>
+            <div v-if="reportFeatureImportance.length" class="report-section feature-importance-section">
+              <span class="section-title">特征重要性</span>
               <v-chart class="chart" :option="featureImportanceChartOption" autoresize />
             </div>
 
@@ -311,11 +349,11 @@
                   <span>模型训练后的核心评估结果。</span>
                 </div>
               </div>
-              <div class="report-metric-grid">
-                <div v-for="item in reportTrainingCards" :key="item.label" class="report-metric-card">
-                  <span>{{ item.label }}</span>
-                  <strong>{{ item.value }}</strong>
-                </div>
+              <div class="report-table-shell">
+                <el-table :data="reportTrainingRows" class="report-table compact" border>
+                  <el-table-column prop="label" label="指标" min-width="180" />
+                  <el-table-column prop="value" label="当前值" min-width="220" />
+                </el-table>
               </div>
               <el-table v-if="reportCandidateModels.length" :data="reportCandidateModels" class="report-table">
                 <el-table-column prop="model_name" label="候选模型" min-width="180" />
@@ -337,11 +375,11 @@
                   <span>数据规模、字段质量和 Agent 选列判断。</span>
                 </div>
               </div>
-              <div class="report-metric-grid">
-                <div v-for="item in reportDataCards" :key="item.label" class="report-metric-card">
-                  <span>{{ item.label }}</span>
-                  <strong>{{ item.value }}</strong>
-                </div>
+              <div class="report-table-shell">
+                <el-table :data="reportDataRows" class="report-table compact" border>
+                  <el-table-column prop="label" label="字段" min-width="180" />
+                  <el-table-column prop="value" label="当前值" min-width="220" />
+                </el-table>
               </div>
               <div v-if="reportSelectionReason" class="report-note">{{ reportSelectionReason }}</div>
               <div v-if="reportNumericColumns.length" class="report-section inline">
@@ -354,13 +392,19 @@
           </div>
 
           <div v-else-if="artifactMode === 'code'" class="code-visual">
-             <vue-monaco-editor
+            <div class="code-visual-head">
+              <span>Operation Agent 生成代码</span>
+              <small>默认显示约 50 行，可拖动右下角调整高度</small>
+            </div>
+            <div class="code-resize-shell" :style="{ height: `${artifactCodeEditorHeight}px` }">
+              <vue-monaco-editor
                 v-model:value="artifactText"
                 theme="vs-dark"
                 language="python"
-                :options="{ readOnly: true, minimap: { enabled: false } }"
-                height="500px"
+                :options="{ readOnly: true, minimap: { enabled: false }, automaticLayout: true, scrollBeyondLastLine: false }"
+                height="100%"
               />
+            </div>
           </div>
 
           <pre v-else class="artifact-box">{{ artifactText || '任务完成后查看产物。' }}</pre>
@@ -486,8 +530,12 @@
 
     <el-dialog v-model="reviewDialogVisible" :title="`人工审核确认 - ${reviewStageLabel}`" width="850px" class="agent-dialog">
       <div v-if="pendingReview" class="review-body">
-        <template v-if="pendingReview.review_stage === 'parse_review'">
-          <el-alert title="请核对 AI 解析出的任务类型与目标列，可直接修改。" type="info" show-icon :closable="false" />
+        <template v-if="resolvedReviewStage === 'parse_review'">
+          <el-alert title="请核对 AI 解析结果并确认目标列和特征列。" type="info" show-icon :closable="false" />
+          <div class="review-current-strip">
+            <span>当前目标列：{{ parseReviewCurrentTarget || '-' }}</span>
+            <span>当前特征列：{{ parseReviewCurrentFeaturesText }}</span>
+          </div>
           <el-form label-position="left" label-width="100px" style="margin-top: 15px;">
             <el-form-item label="任务类型">
               <el-select v-model="editPayload.task_type">
@@ -496,13 +544,45 @@
               </el-select>
             </el-form-item>
             <el-form-item label="目标列">
-              <el-input v-model="editPayload.target_column" />
+              <el-select v-model="editPayload.target_column" filterable placeholder="请选择目标列">
+                <el-option
+                  v-for="column in parseReviewColumnOptions"
+                  :key="column"
+                  :label="column"
+                  :value="column"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="特征列">
+              <el-select
+                v-model="editPayload.feature_columns"
+                multiple
+                filterable
+                collapse-tags
+                collapse-tags-tooltip
+                placeholder="请选择特征列"
+              >
+                <el-option
+                  v-for="column in parseReviewColumnOptions"
+                  :key="column"
+                  :label="column"
+                  :value="column"
+                  :disabled="column === editPayload.target_column"
+                />
+              </el-select>
             </el-form-item>
           </el-form>
+          <div v-if="parseReviewConflict" class="review-warning">特征列与目标列不能相同，请调整后再保存。</div>
         </template>
 
-        <template v-else-if="pendingReview.review_stage === 'feature_review'">
+        <template v-else-if="resolvedReviewStage === 'feature_review'">
           <el-alert title="请确认数据预处理策略，必要时进行调整。" type="info" show-icon :closable="false" />
+          <div class="strategy-current-grid">
+            <div v-for="item in featureReviewCurrentCards" :key="item.label" class="strategy-current-card">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </div>
+          </div>
           <el-form label-position="top" style="margin-top: 15px;">
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
               <el-form-item label="数值列缺失值填充">
@@ -528,16 +608,28 @@
           </el-form>
         </template>
 
-        <template v-else-if="pendingReview.review_stage === 'code_review'">
+        <template v-else-if="resolvedReviewStage === 'code_review'">
           <el-alert title="Agent 已生成执行代码，您可以在下方直接编辑并保存。" type="warning" show-icon :closable="false" />
-          <div style="margin-top: 10px; border: 1px solid var(--zs-border); border-radius: 8px; overflow: hidden;">
-            <vue-monaco-editor
-              v-model:value="editPayload.code"
-              theme="vs-dark"
-              language="python"
-              :options="{ minimap: { enabled: false }, fontSize: 13 }"
-              height="400px"
-            />
+          <div class="review-code-toolbar">
+            <span>可直接编辑 Operation Agent 生成代码并保存到后端。</span>
+            <el-button type="warning" plain :loading="reviewing" @click="submitReviewAndResume('edit_and_continue')">
+              保存修改
+            </el-button>
+          </div>
+          <div v-if="reviewCodeLoading" class="review-code-empty">正在加载 Operation Agent 代码...</div>
+          <div v-else-if="!String(editPayload.code || '').trim()" class="review-code-empty warning">
+            {{ reviewCodeLoadError || '当前未读取到代码内容，可能是后端该阶段尚未返回代码字段。' }}
+          </div>
+          <div class="review-code-shell">
+            <div class="code-resize-shell review-code-resize-shell" :style="{ height: `${reviewCodeEditorHeight}px` }">
+              <vue-monaco-editor
+                v-model:value="editPayload.code"
+                theme="vs-dark"
+                language="python"
+                :options="{ minimap: { enabled: false }, fontSize: 13, automaticLayout: true, scrollBeyondLastLine: false }"
+                height="100%"
+              />
+            </div>
           </div>
         </template>
 
@@ -584,7 +676,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { useUserStore } from '../store/user'
 // [引入 ECharts, Monaco, Html2Pdf]
 import { use } from 'echarts/core'
@@ -602,6 +694,8 @@ import {
   createAgentTask,
   downloadAgentTaskArtifacts,
   fetchAgentCode,
+  fetchAgentCodeFile,
+  fetchAgentDemo,
   fetchAgentProgress,
   fetchAgentReport,
   fetchAgentTask,
@@ -663,7 +757,6 @@ const pendingReview = ref(null)
 const reviewComment = ref('')
 const patchText = ref('')
 let runPollTimer = null
-let listRefreshTimer = null
 
 // Web Demo 与 HITL 新增状态
 const predictMode = ref('single')
@@ -671,6 +764,15 @@ const singlePredictForm = ref({})
 const singlePredictResult = ref(null)
 const singlePredictError = ref('')
 const editPayload = ref({})
+const demoFeatureColumns = ref([])
+const demoLoading = ref(false)
+const reviewPayloadSnapshot = ref({})
+const reviewCodeLoading = ref(false)
+const reviewCodeLoadError = ref('')
+const artifactCodeEditorHeight = ref(920)
+const reviewCodeEditorHeight = ref(760)
+const themeTick = ref(0)
+let themeObserver = null
 
 const canReview = computed(() => ['ADMIN', 'DEVELOPER'].includes(userStore.role))
 const hitlOptions = [
@@ -684,8 +786,8 @@ const stageDefinitions = [
   { key: 'data_analysis', review: 'feature_review', title: 'Data Agent', desc: '检查数据质量、列类型和缺失值', icon: 'DataAnalysis' },
   { key: 'model_plan', review: 'model_plan_review', title: 'Model Agent', desc: '规划模型、指标和训练策略', icon: 'Aim' },
   { key: 'model_training', review: null, title: 'Training Agent', desc: '训练轻量模型并计算指标', icon: 'Cpu' },
-  { key: 'code_generation', review: 'code_review', title: 'Operation Agent', desc: '生成代码和预测接口', icon: 'Document' },
-  { key: 'operation_report', review: null, title: 'Report Agent', desc: '输出报告、代码和可复用产物', icon: 'TrendCharts' }
+  { key: 'code_generation', review: 'code_review', title: 'Operation Agent', desc: '生成代码和预测接口', icon: 'TrendCharts' },
+  { key: 'operation_report', review: null, title: 'Report Agent', desc: '输出报告、代码和可复用产物', icon: 'Document' }
 ]
 const stageLabelMap = { pending: '等待', running: '进行中', done: '完成', failed: '失败', review: '待审核' }
 const reviewStageTitleMap = Object.fromEntries(hitlOptions.map((item) => [item.value, item.label]))
@@ -702,7 +804,22 @@ const draftPreviewColumns = computed(() => draftPreviewRows.value[0] ? Object.ke
 const canRunTask = computed(() => ['CREATED', 'READY_TO_RESUME'].includes(lifecycleStatus.value))
 const runButtonText = computed(() => (lifecycleStatus.value === 'READY_TO_RESUME' ? '继续运行' : '运行'))
 const formattedReview = computed(() => JSON.stringify(pendingReview.value?.payload || pendingReview.value, null, 2))
-const reviewStageLabel = computed(() => reviewStageTitleMap[pendingReview.value?.review_stage] || pendingReview.value?.review_stage || '-')
+const normalizeReviewStage = (stage) => {
+  const value = String(stage || '')
+  if (!value) return ''
+  if (reviewStageTitleMap[value]) return value
+  const mapped = stageDefinitions.find((item) => item.key === value)?.review
+  return mapped || ''
+}
+const resolvedReviewStage = computed(() =>
+  normalizeReviewStage(
+    pendingReview.value?.review_stage ||
+    pendingReview.value?.review_node ||
+    pendingReview.value?.node ||
+    currentStage.value
+  )
+)
+const reviewStageLabel = computed(() => reviewStageTitleMap[resolvedReviewStage.value] || resolvedReviewStage.value || '-')
 const parsedTaskType = computed(() => parsedResultRaw.value?.task_type || parsedResultRaw.value?.type || parsedResultRaw.value?.model_type || '')
 const parsedTargetColumn = computed(() => parsedResultRaw.value?.target_column || parsedResultRaw.value?.target || parsedResultRaw.value?.label_column || '')
 
@@ -739,6 +856,12 @@ const progressBarStatus = computed(() => {
 })
 const predictionColumns = computed(() => {
   const columns = new Set()
+  demoFeatureColumns.value.forEach((column) => {
+    if (column) columns.add(String(column))
+  })
+  reportFeatureColumns.value.forEach((column) => {
+    if (column) columns.add(String(column))
+  })
   predictionRows.value.forEach((row) => {
     Object.keys(row.features || {}).forEach((column) => columns.add(column))
   })
@@ -750,18 +873,84 @@ const pagedPredictionRows = computed(() => {
 })
 const predictionTableHeight = computed(() => predictionTableHeaderHeight + predictionPageSize * predictionRowHeight)
 
+const parseReviewColumnOptions = computed(() => {
+  const options = new Set()
+  normalizeColumnList(readFirstByPaths(reviewPayloadSnapshot.value, [
+    'all_columns',
+    'columns',
+    'candidate_columns',
+    'schema.columns',
+    'dataset_columns',
+    'data.columns',
+    'available_columns'
+  ])).forEach((column) => options.add(column))
+  normalizeColumnList(readFirstByPaths(reviewPayloadSnapshot.value, [
+    'feature_columns',
+    'features',
+    'selected_features'
+  ])).forEach((column) => options.add(column))
+  previewColumns.value.forEach((column) => options.add(column))
+  reportFeatureColumns.value.forEach((column) => options.add(column))
+  reportNumericColumns.value.forEach((column) => options.add(column))
+  if (editPayload.value.target_column) options.add(String(editPayload.value.target_column))
+  normalizeColumnList(editPayload.value.feature_columns).forEach((column) => options.add(column))
+  return Array.from(options)
+})
+const parseReviewCurrentTarget = computed(() => extractParseReviewInfo(reviewPayloadSnapshot.value).target_column || '-')
+const parseReviewCurrentFeaturesText = computed(() => {
+  const features = extractParseReviewInfo(reviewPayloadSnapshot.value).feature_columns
+  return features.length ? features.join('、') : '-'
+})
+const parseReviewConflict = computed(() => {
+  const target = String(editPayload.value?.target_column || '').trim()
+  if (!target) return false
+  return normalizeColumnList(editPayload.value?.feature_columns).includes(target)
+})
+const featureReviewCurrentCards = computed(() => {
+  const current = extractFeatureReviewStrategies(reviewPayloadSnapshot.value, false)
+  return [
+    { label: '当前数值列缺失值策略', value: current.numeric_missing_strategy || '-' },
+    { label: '当前类别列缺失值策略', value: current.categorical_missing_strategy || '-' },
+    { label: '当前特征编码策略', value: current.categorical_encoding_strategy || '-' }
+  ]
+})
+
 // ECharts 特征重要性配置
 const featureImportanceChartOption = computed(() => {
-  const data = [...reportFeatureImportance.value].sort((a, b) => a.importance - b.importance);
+  const _themeSignal = themeTick.value
+  const data = [...reportFeatureImportance.value]
+    .map((item) => ({
+      feature: String(item.feature || item.name || item.column || '-'),
+      importance: Number(item.importance ?? item.value ?? 0)
+    }))
+    .sort((a, b) => a.importance - b.importance)
+  const textColor = getThemeCssVar('--zs-text', '#1f2430')
+  const mutedColor = getThemeCssVar('--zs-muted', '#667085')
+  const borderColor = getThemeCssVar('--zs-border', '#d0d7e2')
   return {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'value', boundaryGap: [0, 0.01] },
-    yAxis: { type: 'category', data: data.map(item => item.feature) },
+    grid: { left: 120, right: 28, top: 18, bottom: 14, containLabel: false },
+    xAxis: {
+      type: 'value',
+      boundaryGap: [0, 0.01],
+      axisLabel: { color: mutedColor },
+      axisLine: { lineStyle: { color: borderColor } },
+      splitLine: { lineStyle: { color: borderColor, opacity: 0.4 } }
+    },
+    yAxis: {
+      type: 'category',
+      data: data.map((item) => item.feature),
+      axisLabel: {
+        color: textColor,
+        width: 160,
+        overflow: 'truncate'
+      },
+      axisLine: { lineStyle: { color: borderColor } }
+    },
     series: [
       {
         type: 'bar',
-        data: data.map(item => item.importance),
+        data: data.map((item) => item.importance),
         itemStyle: { color: '#5470C6', borderRadius: [0, 4, 4, 0] }
       }
     ]
@@ -785,7 +974,7 @@ const reportMetrics = computed(() => {
 })
 const reportFeatureColumns = computed(() => {
   const columns = currentReport.value?.feature_columns || reportData.value?.feature_columns || reportModelResult.value?.feature_columns
-  return Array.isArray(columns) ? columns : []
+  return normalizeColumnList(columns)
 })
 const reportTargetColumn = computed(() => currentReport.value?.target_column || currentTask.value?.target_column || '-')
 const reportTaskType = computed(() => currentReport.value?.task_type || currentTask.value?.task_type || '-')
@@ -799,15 +988,20 @@ const reportSummaryCards = computed(() => [
   { label: '特征数量', value: String(reportFeatureColumns.value.length) }
 ])
 const reportBestModelName = computed(() => reportModelResult.value?.best_model?.model_name || reportModelPlan.value?.model_name || '-')
-const reportTrainingCards = computed(() => {
+const reportTrainingRows = computed(() => {
   const metrics = reportMetrics.value
-  const cards = [
+  const rows = [
     { label: '最佳模型', value: reportBestModelName.value },
     { label: '主指标', value: metrics.metric || reportModelPlan.value.primary_metric || '-' },
+    { label: '主指标得分', value: formatReportValue(metrics.score ?? metrics[reportModelPlan.value.primary_metric]) },
     { label: '训练行数', value: formatReportValue(metrics.train_rows ?? reportModelResult.value?.train_size) },
-    { label: '测试行数', value: formatReportValue(reportModelResult.value?.test_size) }
+    { label: '测试行数', value: formatReportValue(metrics.test_rows ?? reportModelResult.value?.test_size) }
   ]
-  return cards
+  Object.entries(metrics || {}).forEach(([key, value]) => {
+    if (['metric', 'score', 'train_rows', 'test_rows'].includes(key)) return
+    rows.push({ label: key, value: formatReportValue(value) })
+  })
+  return rows.filter((item) => item.value !== '-')
 })
 const reportCandidateModels = computed(() => Array.isArray(reportModelResult.value?.candidate_models) ? reportModelResult.value.candidate_models : [])
 const reportCandidateMetricColumns = computed(() => {
@@ -815,19 +1009,25 @@ const reportCandidateMetricColumns = computed(() => {
   reportCandidateModels.value.forEach((model) => Object.keys(model.metrics || {}).forEach((key) => columns.add(key)))
   return Array.from(columns)
 })
-const reportDataCards = computed(() => [
-  { label: '数据行数', value: formatReportValue(reportData.value?.row_count) },
-  { label: '字段数量', value: formatReportValue(reportData.value?.column_count || reportData.value?.columns?.length) },
-  { label: '目标均值', value: formatReportValue(reportData.value?.target_mean) }
-].filter((item) => item.value !== '-'))
+const reportDataRows = computed(() => {
+  const rows = [
+    { label: '数据行数', value: formatReportValue(reportData.value?.row_count) },
+    { label: '字段数量', value: formatReportValue(reportData.value?.column_count || reportData.value?.columns?.length) },
+    { label: '目标均值', value: formatReportValue(reportData.value?.target_mean) }
+  ]
+  Object.entries(reportData.value?.missing_summary || {}).forEach(([key, value]) => {
+    rows.push({ label: `缺失率(${key})`, value: formatReportValue(value) })
+  })
+  return rows.filter((item) => item.value !== '-')
+})
 const reportSelectionReason = computed(() => reportData.value?.selection_reason || reportData.value?.llm_output?.selection_reason || '')
-const reportNumericColumns = computed(() => Array.isArray(reportData.value?.numeric_columns) ? reportData.value.numeric_columns : [])
+const reportNumericColumns = computed(() => normalizeColumnList(reportData.value?.numeric_columns))
 const reportRecommendations = computed(() => Array.isArray(currentReport.value?.recommendations) ? currentReport.value.recommendations : [])
 const reportRiskNotes = computed(() => Array.isArray(currentReport.value?.risk_notes) ? currentReport.value.risk_notes : [])
-const reportFeatureImportance = computed(() => Array.isArray(reportModelTraining.value?.feature_importance || currentReport.value?.feature_importance) ? (reportModelTraining.value?.feature_importance || currentReport.value?.feature_importance) : [])
+const reportFeatureImportance = computed(() => normalizeFeatureImportance(reportModelTraining.value?.feature_importance || currentReport.value?.feature_importance))
 
 const stages = computed(() => {
-  const reviewStage = lifecycleStatus.value === 'WAITING_HUMAN' ? currentStage.value : ''
+  const reviewStage = lifecycleStatus.value === 'WAITING_HUMAN' ? resolvedReviewStage.value : ''
   const activeNode = reviewStage ? stageDefinitions.find((item) => item.review === reviewStage)?.key : currentStage.value
   const currentIndex = stageDefinitions.findIndex((item) => item.key === activeNode)
   return stageDefinitions.map((item, index) => {
@@ -844,6 +1044,239 @@ const stages = computed(() => {
 const normalizeDatasetId = (result) => result?.dataset_id || result?.id || result?.dataset?.id
 const normalizeRows = (preview) => Array.isArray(preview) ? preview : Array.isArray(preview?.rows) ? preview.rows : []
 const normalizeTaskId = (task) => task?.task_id || task?.id
+const normalizeStringArray = (list) => Array.from(new Set((Array.isArray(list) ? list : []).map((item) => String(item || '').trim()).filter(Boolean)))
+const normalizeColumnList = (value) => {
+  if (Array.isArray(value)) return normalizeStringArray(value)
+  if (typeof value === 'string') return normalizeStringArray(value.split(/[,;，、|\n\r\t]+/))
+  if (value && typeof value === 'object') return normalizeStringArray(Object.keys(value))
+  return []
+}
+const getByPath = (obj, path) => path.split('.').reduce((acc, key) => (acc && acc[key] !== undefined ? acc[key] : undefined), obj)
+const readFirstByPaths = (source, paths = []) => {
+  for (const path of paths) {
+    const value = getByPath(source, path)
+    if (value !== undefined && value !== null && value !== '') return value
+  }
+  return undefined
+}
+const getThemeCssVar = (name, fallback) => {
+  if (typeof window === 'undefined') return fallback
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return value || fallback
+}
+const extractParseReviewInfo = (payload) => {
+  const source = payload || {}
+  return {
+    task_type: String(readFirstByPaths(source, ['task_type', 'type', 'model_type', 'problem_type']) || '').trim(),
+    target_column: String(readFirstByPaths(source, ['target_column', 'target', 'label_column', 'target_col', 'label']) || '').trim(),
+    feature_columns: normalizeColumnList(readFirstByPaths(source, [
+      'feature_columns',
+      'features',
+      'selected_features',
+      'feature_cols',
+      'input_features'
+    ]))
+  }
+}
+const extractFeatureReviewStrategies = (payload, useFallback = true) => {
+  const source = payload || {}
+  return {
+    numeric_missing_strategy: String(readFirstByPaths(source, [
+      'numeric_missing_strategy',
+      'numeric_missing_fill_strategy',
+      'numeric_imputation_strategy',
+      'numeric_fillna_strategy'
+    ]) || (useFallback ? 'mean' : '-')).trim(),
+    categorical_missing_strategy: String(readFirstByPaths(source, [
+      'categorical_missing_strategy',
+      'categorical_missing_fill_strategy',
+      'categorical_imputation_strategy',
+      'categorical_fillna_strategy'
+    ]) || (useFallback ? 'mode' : '-')).trim(),
+    categorical_encoding_strategy: String(readFirstByPaths(source, [
+      'categorical_encoding_strategy',
+      'encoding_strategy',
+      'feature_encoding_strategy',
+      'categorical_encoder'
+    ]) || (useFallback ? 'onehot' : '-')).trim()
+  }
+}
+const extractCodePath = (payload) => {
+  const source = payload || {}
+  const direct = readFirstByPaths(source, [
+    'code_path',
+    'python_code_path',
+    'generated_code_path',
+    'file_path',
+    'path',
+    'artifact_path'
+  ])
+  if (typeof direct === 'string') return direct
+  const nestedCandidates = [
+    source?.code_result,
+    source?.operation_result,
+    source?.operation_agent,
+    source?.data,
+    source?.result
+  ]
+  for (const candidate of nestedCandidates) {
+    const nestedPath = extractCodePath(candidate)
+    if (nestedPath) return nestedPath
+  }
+  return ''
+}
+const extractCodeText = (payload) => {
+  const source = payload || {}
+  const direct = readFirstByPaths(source, [
+    'code',
+    'python_code',
+    'generated_code',
+    'source_code',
+    'content',
+    'script'
+  ])
+  if (typeof direct === 'string') return direct
+  const nestedCandidates = [
+    source?.code_result,
+    source?.operation_result,
+    source?.operation_agent,
+    source?.data,
+    source?.result
+  ]
+  for (const candidate of nestedCandidates) {
+    const nestedCode = extractCodeText(candidate)
+    if (nestedCode) return nestedCode
+  }
+  return ''
+}
+const looksLikeCodePath = (value) => {
+  const text = String(value || '').trim()
+  if (!text || text.includes('\n')) return false
+  if (!/[\\/]/.test(text) && !text.startsWith('uploads/')) return false
+  return /\.(py|ipynb|txt|json|yaml|yml|sql)$/i.test(text)
+}
+const looksLikeCodeContent = (value) => {
+  const text = String(value || '').trim()
+  if (!text) return false
+  if (text.includes('\n')) return true
+  return /(def\s+\w+\(|class\s+\w+|import\s+\w+|from\s+\w+\s+import|if __name__ == ['"]__main__['"])/.test(text)
+}
+const resolveCodePayloadText = async (payload) => {
+  const directCode = String(extractCodeText(payload) || '').trim()
+  const pathFromPayload = String(extractCodePath(payload) || '').trim()
+  const fallbackPath = looksLikeCodePath(directCode) ? directCode : ''
+  const codePath = pathFromPayload || fallbackPath
+
+  if (directCode && looksLikeCodeContent(directCode) && !looksLikeCodePath(directCode)) {
+    return { code: directCode, codePath: '', error: '' }
+  }
+
+  if (codePath) {
+    try {
+      const fileText = await fetchAgentCodeFile(codePath)
+      const content = typeof fileText === 'string' ? fileText : JSON.stringify(fileText ?? '', null, 2)
+      if (String(content || '').trim()) {
+        return { code: content, codePath, error: '' }
+      }
+      return { code: '', codePath, error: `后端返回了代码路径（${codePath}），但该路径读取到空内容。` }
+    } catch (error) {
+      return { code: '', codePath, error: `后端返回了代码路径（${codePath}），但前端无法读取该路径内容。` }
+    }
+  }
+
+  if (directCode) return { code: directCode, codePath: '', error: '' }
+  return { code: '', codePath: '', error: '' }
+}
+const normalizeFeatureImportance = (input) => {
+  if (Array.isArray(input)) {
+    return input
+      .map((item) => ({
+        feature: String(item?.feature || item?.name || item?.column || ''),
+        importance: Number(item?.importance ?? item?.value ?? 0)
+      }))
+      .filter((item) => item.feature)
+  }
+  if (input && typeof input === 'object') {
+    return Object.entries(input).map(([feature, importance]) => ({
+      feature: String(feature),
+      importance: Number(importance ?? 0)
+    }))
+  }
+  return []
+}
+const normalizeReviewPayload = (review, reviewStage) => {
+  const payload = review?.payload || review?.review_payload || review?.data || {}
+  if (reviewStage === 'parse_review') {
+    const parseInfo = extractParseReviewInfo(payload)
+    return {
+      ...payload,
+      task_type: parseInfo.task_type || 'classification',
+      target_column: parseInfo.target_column,
+      feature_columns: parseInfo.feature_columns
+    }
+  }
+  if (reviewStage === 'feature_review') {
+    return {
+      ...payload,
+      ...extractFeatureReviewStrategies(payload)
+    }
+  }
+  if (reviewStage === 'code_review') {
+    return {
+      ...payload,
+      code: extractCodeText(payload)
+    }
+  }
+  return JSON.parse(JSON.stringify(payload))
+}
+const resolvePendingReviewRecord = (raw) => {
+  if (!raw || typeof raw !== 'object') return raw
+  const directStage = normalizeReviewStage(raw?.review_stage || raw?.review_node || raw?.node)
+  if (directStage) return raw
+  const candidateKeys = ['pending_review', 'review', 'current_review', 'waiting_review', 'data']
+  for (const key of candidateKeys) {
+    const candidate = raw?.[key]
+    if (!candidate || typeof candidate !== 'object') continue
+    const candidateStage = normalizeReviewStage(candidate?.review_stage || candidate?.review_node || candidate?.node)
+    if (candidateStage) return candidate
+  }
+  if (raw?.pending_review && typeof raw.pending_review === 'object') return raw.pending_review
+  return raw
+}
+const extractDemoFeatureColumns = (demo) => {
+  const candidates = [
+    demo?.feature_columns,
+    demo?.features,
+    demo?.columns,
+    demo?.input_features,
+    demo?.schema?.feature_columns,
+    demo?.schema?.features,
+    demo?.schema?.columns,
+    demo?.model?.feature_columns,
+    demo?.model_features,
+    demo?.inputs,
+    demo?.data?.feature_columns
+  ]
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate) && candidate.length) {
+      if (typeof candidate[0] === 'string') return normalizeStringArray(candidate)
+      if (typeof candidate[0] === 'object' && candidate[0] !== null) {
+        return normalizeStringArray(candidate.map((item) => item.name || item.column || item.field || item.key))
+      }
+    }
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      return normalizeStringArray(Object.keys(candidate))
+    }
+  }
+  return []
+}
+const buildEmptyFeatureRecord = () => {
+  const features = {}
+  predictionColumns.value.forEach((column) => {
+    features[column] = ''
+  })
+  return features
+}
 const guessTaskType = (text) => /(分类|是否|欺诈)/.test(`${text}`.toLowerCase()) ? 'classification' : 'regression'
 const guessTargetColumn = (text) => {
   const matched = `${text}`.match(/预测\s*([a-zA-Z_][\w]*)/i)
@@ -874,6 +1307,12 @@ const syncTaskState = (task) => {
 const openCreateDialog = () => {
   draftTaskDesc.value = ''
   draftDatasetId.value = null
+  parsedResultRaw.value = null
+  parsedConfirmed.value = false
+  parseSource.value = ''
+  parseResultNotice.value = ''
+  uploadProgress.value = 0
+  selectedHitlStages.value = []
   createDialogVisible.value = true
 }
 
@@ -923,15 +1362,23 @@ const createAndRunTask = async () => {
   if (!parsedConfirmed.value || !draftTaskDesc.value.trim() || !draftDatasetId.value) return ElMessage.warning('请完善表单并确认解析')
   creating.value = true
   try {
-    const task = await createAgentTask({ dataset_id: Number(draftDatasetId.value), task_description: draftTaskDesc.value.trim(), hitl: canReview.value ? selectedHitlStages.value : [] })
+    const hitlStages = canReview.value ? [...selectedHitlStages.value] : []
+    const task = await createAgentTask({ dataset_id: Number(draftDatasetId.value), task_description: draftTaskDesc.value.trim(), hitl: hitlStages })
     syncTaskState(task)
     const nextTaskId = String(normalizeTaskId(task))
     if (nextTaskId) taskRunModeMap.value[nextTaskId] = draftRunOffline.value
     runOffline.value = draftRunOffline.value
     createDialogVisible.value = false
-    await runAgentTask(currentTaskId.value, { offline: runOffline.value })
+    const runResult = await runAgentTask(currentTaskId.value, { offline: runOffline.value })
+    syncTaskState(runResult)
     await loadTasks(false, true)
-    startRunPolling()
+    if (lifecycleStatus.value === 'WAITING_HUMAN') {
+      await loadPendingReview(true)
+    } else if (lifecycleStatus.value === 'COMPLETED') {
+      await loadReport()
+    } else {
+      startRunPolling()
+    }
   } catch (error) { ElMessage.error('创建启动失败') } finally { creating.value = false }
 }
 
@@ -986,26 +1433,119 @@ const loadProgress = async (silent = false) => {
 // ================= HITL 逻辑 =================
 const loadPendingReview = async (silent = false) => {
   try {
-    pendingReview.value = await fetchPendingReview(currentTaskId.value)
-    editPayload.value = JSON.parse(JSON.stringify(pendingReview.value?.payload || {}))
-  } catch (error) { pendingReview.value = null; if (!silent) ElMessage.warning('没有待审核内容') }
+    reviewCodeLoadError.value = ''
+    reviewCodeLoading.value = false
+
+    const reviewResponse = await fetchPendingReview(currentTaskId.value)
+    const review = resolvePendingReviewRecord(reviewResponse)
+    pendingReview.value = review || null
+    const reviewStage = normalizeReviewStage(review?.review_stage || review?.review_node || review?.node)
+    if (reviewStage) currentStage.value = reviewStage
+    reviewPayloadSnapshot.value = JSON.parse(JSON.stringify(pendingReview.value?.payload || pendingReview.value?.review_payload || pendingReview.value?.data || {}))
+    editPayload.value = normalizeReviewPayload(pendingReview.value, reviewStage)
+    if (reviewStage === 'code_review') {
+      reviewCodeLoading.value = true
+      try {
+        const localResolved = await resolveCodePayloadText(editPayload.value)
+        if (localResolved.code) {
+          editPayload.value.code = localResolved.code
+        }
+
+        const needFetchTaskCode =
+          !String(editPayload.value?.code || '').trim() || looksLikeCodePath(editPayload.value?.code)
+        if (needFetchTaskCode) {
+          const codePayload = await fetchAgentCode(currentTaskId.value)
+          const remoteResolved = await resolveCodePayloadText(codePayload)
+          if (remoteResolved.code) {
+            editPayload.value.code = remoteResolved.code
+          }
+          if (remoteResolved.error && !String(editPayload.value?.code || '').trim()) {
+            reviewCodeLoadError.value = remoteResolved.error
+          }
+        }
+
+        if (!String(editPayload.value?.code || '').trim()) {
+          reviewCodeLoadError.value =
+            reviewCodeLoadError.value || '后端接口已响应，但未返回可识别的代码字段（code / python_code / generated_code / code_path）。'
+        }
+      } catch (error) {
+        reviewCodeLoadError.value = error?.message || '代码接口调用失败，可能是后端该阶段尚未产出代码。'
+      } finally {
+        reviewCodeLoading.value = false
+      }
+    }
+  } catch (error) {
+    pendingReview.value = null
+    reviewCodeLoading.value = false
+    reviewCodeLoadError.value = ''
+    if (!silent) ElMessage.warning('没有待审核内容')
+  }
 }
 
 const openReviewDialog = async () => {
   await loadPendingReview(false)
   reviewComment.value = ''
+  patchText.value = ''
   reviewDialogVisible.value = true
+}
+
+const buildReviewPatch = (reviewStage) => {
+  if (reviewStage === 'parse_review') {
+    const taskType = String(editPayload.value?.task_type || '').trim() || 'classification'
+    const targetColumn = String(editPayload.value?.target_column || '').trim()
+    const featureColumns = normalizeColumnList(editPayload.value?.feature_columns)
+    if (targetColumn && featureColumns.includes(targetColumn)) {
+      throw new Error('特征列与目标列不能相同')
+    }
+    return {
+      ...editPayload.value,
+      task_type: taskType,
+      target_column: targetColumn,
+      target: targetColumn,
+      feature_columns: featureColumns,
+      input_features: featureColumns
+    }
+  }
+  if (reviewStage === 'feature_review') {
+    const strategies = extractFeatureReviewStrategies(editPayload.value || {})
+    return {
+      ...editPayload.value,
+      ...strategies
+    }
+  }
+  if (reviewStage === 'code_review') {
+    const code = String(editPayload.value?.code || '').trimEnd()
+    if (!code.trim()) throw new Error('代码内容为空，请填写后再保存')
+    return {
+      ...editPayload.value,
+      code,
+      python_code: code,
+      generated_code: code
+    }
+  }
+  return editPayload.value
 }
 
 const submitReviewAndResume = async (actionType) => {
   reviewing.value = true
   try {
     const isEdit = actionType === 'edit_and_continue'
+    const resolvedPatch = (() => {
+      if (!isEdit) return null
+      if (patchText.value.trim()) {
+        try {
+          return JSON.parse(patchText.value)
+        } catch {
+          throw new Error('补丁 JSON 格式不正确')
+        }
+      }
+      return buildReviewPatch(resolvedReviewStage.value)
+    })()
     await submitAgentReview(currentTaskId.value, {
       action: actionType,
-      patch: isEdit ? editPayload.value : null,
+      patch: resolvedPatch,
       comment: reviewComment.value.trim(),
-      auto_resume: !isEdit,
+      auto_resume: false,
       offline: runOffline.value
     })
     if (actionType === 'approve') {
@@ -1016,8 +1556,9 @@ const submitReviewAndResume = async (actionType) => {
       startRunPolling()
     } else {
       ElMessage.success('修改已临时保存到后端')
+      await loadPendingReview(true)
     }
-  } catch (error) { ElMessage.error('审核提交失败') } finally { reviewing.value = false }
+  } catch (error) { ElMessage.error(error.message || '审核提交失败') } finally { reviewing.value = false }
 }
 
 // ================= 报告与代码 =================
@@ -1025,29 +1566,95 @@ const loadReport = async () => {
   try {
     currentReport.value = await fetchAgentReport(currentTaskId.value)
     artifactMode.value = 'report'
+    await preparePredictionDemo()
     if (!predictionRows.value.length) fillPredictionSample()
   } catch (error) { ElMessage.error('报告加载失败') }
 }
 
+const ensurePreviewRows = async () => {
+  if (previewRows.value.length || !datasetId.value) return
+  try {
+    previewRows.value = normalizeRows(await fetchDatasetPreview(datasetId.value)).slice(0, 20)
+  } catch {
+    // ignore preview loading errors for demo initialization
+  }
+}
+
+const preparePredictionDemo = async () => {
+  demoLoading.value = true
+  try {
+    await ensurePreviewRows()
+    let columns = []
+    try {
+      const demo = await fetchAgentDemo(currentTaskId.value)
+      columns = extractDemoFeatureColumns(demo)
+    } catch {
+      columns = []
+    }
+    if (!columns.length) {
+      const taskColumns = normalizeColumnList(currentTask.value?.feature_columns || currentTask.value?.features || currentTask.value?.input_features)
+      columns = normalizeStringArray(taskColumns)
+    }
+    if (!columns.length) columns = normalizeStringArray(reportFeatureColumns.value)
+    if (!columns.length && previewRows.value[0]) {
+      const targetColumn = reportTargetColumn.value
+      columns = normalizeStringArray(Object.keys(previewRows.value[0]).filter((column) => column !== targetColumn))
+    }
+    demoFeatureColumns.value = columns
+    if (!predictionRows.value.length && columns.length) fillPredictionSample()
+  } finally {
+    demoLoading.value = false
+  }
+}
+
 const loadCode = async () => {
   try {
-    const code = await fetchAgentCode(currentTaskId.value)
-    artifactText.value = typeof code === 'string' ? code : code?.python_code || JSON.stringify(code, null, 2)
+    const codePayload = await fetchAgentCode(currentTaskId.value)
+    const resolved = await resolveCodePayloadText(codePayload)
+    artifactText.value = resolved.code || (typeof codePayload === 'string' ? codePayload : JSON.stringify(codePayload, null, 2))
+    if (resolved.error) ElMessage.warning(resolved.error)
     artifactMode.value = 'code'
   } catch (error) { ElMessage.error('代码加载失败') }
 }
 
+const switchArtifactMode = async (nextMode) => {
+  if (nextMode === 'report') {
+    if (!currentReport.value) await loadReport()
+    else artifactMode.value = 'report'
+    return
+  }
+  if (nextMode === 'code') {
+    await loadCode()
+  }
+}
+
 // ================= 预测 Web Demo =================
 const fillPredictionSample = () => {
-  predictionRows.value = (previewRows.value.slice(0, 5)).map((row, index) => {
-    const features = {}; predictionColumns.value.forEach(col => features[col] = row[col] ?? '')
-    return { id: `sample_${Date.now()}_${index}`, features, prediction: '' }
-  })
+  if (previewRows.value.length) {
+    predictionRows.value = (previewRows.value.slice(0, 5)).map((row, index) => {
+      const features = {}
+      predictionColumns.value.forEach((col) => {
+        features[col] = row[col] ?? ''
+      })
+      return { id: `sample_${Date.now()}_${index}`, features, prediction: '' }
+    })
+    return
+  }
+  if (!predictionColumns.value.length) return
+  predictionRows.value = Array.from({ length: 3 }, (_, index) => ({
+    id: `sample_${Date.now()}_${index}`,
+    features: buildEmptyFeatureRecord(),
+    prediction: ''
+  }))
 }
 
 const fillSinglePredictSample = () => {
   if (previewRows.value.length > 0) {
     predictionColumns.value.forEach(col => singlePredictForm.value[col] = previewRows.value[0][col] ?? '')
+  } else if (predictionColumns.value.length) {
+    predictionColumns.value.forEach((col) => {
+      singlePredictForm.value[col] = singlePredictForm.value[col] ?? ''
+    })
   } else { ElMessage.warning('暂无数据可以提取样例') }
 }
 
@@ -1086,6 +1693,23 @@ const exportReportJson = () => downloadJson(currentReport.value, 'report.json')
 const downloadTaskArtifacts = async () => {
   try { const response = await downloadAgentTaskArtifacts(currentTaskId.value); const blob = new Blob([response.data], { type: 'application/zip' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'artifacts.zip'; document.body.appendChild(link); link.click(); URL.revokeObjectURL(url) }
   catch (error) { ElMessage.error('下载失败') }
+}
+const handleExportCommand = async (command) => {
+  if (command === 'package') {
+    await downloadTaskArtifacts()
+    return
+  }
+  if (command === 'json') {
+    exportReportJson()
+    return
+  }
+  if (command === 'pdf') {
+    downloadReportPDF()
+    return
+  }
+  if (command === 'md') {
+    downloadReportMD()
+  }
 }
 
 // ================= PDF & MD 导出 =================
@@ -1138,22 +1762,133 @@ const startRunPolling = () => {
   }, 2500)
 }
 
-onMounted(() => { loadTasks(false, true) })
-onBeforeUnmount(() => { clearInterval(runPollTimer) })
+watch(
+  predictionColumns,
+  (columns) => {
+    const nextForm = {}
+    columns.forEach((column) => {
+      nextForm[column] = singlePredictForm.value[column] ?? ''
+    })
+    singlePredictForm.value = nextForm
+  },
+  { immediate: true }
+)
+
+watch(
+  () => editPayload.value?.target_column,
+  (target) => {
+    if (!target) return
+    const features = normalizeColumnList(editPayload.value?.feature_columns)
+    if (!features.includes(target)) return
+    editPayload.value = {
+      ...editPayload.value,
+      feature_columns: features.filter((item) => item !== target)
+    }
+  }
+)
+
+watch(
+  predictionRows,
+  (rows) => {
+    const maxPage = Math.max(1, Math.ceil(rows.length / predictionPageSize))
+    if (predictionPage.value > maxPage) predictionPage.value = maxPage
+  },
+  { deep: true }
+)
+
+watch(currentTaskId, (nextId, prevId) => {
+  if (!nextId || nextId === prevId) return
+  predictionRows.value = []
+  predictionPage.value = 1
+  singlePredictForm.value = {}
+  singlePredictResult.value = null
+  singlePredictError.value = ''
+  demoFeatureColumns.value = []
+  artifactText.value = ''
+  artifactMode.value = 'empty'
+})
+
+onMounted(() => {
+  loadTasks(false, true)
+  if (typeof window !== 'undefined') {
+    themeObserver = new MutationObserver(() => {
+      themeTick.value += 1
+    })
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'data-theme'] })
+  }
+})
+onBeforeUnmount(() => {
+  clearInterval(runPollTimer)
+  if (themeObserver) {
+    themeObserver.disconnect()
+    themeObserver = null
+  }
+})
 </script>
 
 <style scoped>
-/* 保持你原本绝大多数 CSS 不变，追加下面这些新样式 */
-.agent-console { height: 100vh; display: grid; grid-template-columns: 300px minmax(0, 1fr); }
-.task-rail { border-right: 1px solid var(--zs-border); padding: 18px 16px; display: flex; flex-direction: column; }
-.agent-main { padding: 30px 42px; overflow: auto; }
-.task-item { width: 100%; text-align: left; padding: 10px; margin-bottom: 5px; border-radius: 8px; border:none; cursor: pointer; background: transparent;}
-.task-item:hover, .task-item.active { background: var(--zs-panel-soft); }
+.agent-console {
+  height: 100vh;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  line-height: 1.68;
+}
+.task-rail {
+  border-right: 1px solid var(--zs-border);
+  padding: 22px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--zs-sidebar);
+}
+.rail-label {
+  color: var(--zs-muted);
+  font-size: 13px;
+  font-weight: 640;
+  letter-spacing: 0.06em;
+}
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.agent-main { padding: 34px 46px; overflow: auto; }
+.task-item {
+  width: 100%;
+  text-align: left;
+  padding: 13px 14px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  background: var(--zs-panel-soft);
+  color: var(--zs-text);
+  transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+.task-item:hover, .task-item.active {
+  background: var(--zs-elevated);
+  border-color: var(--zs-border-strong);
+  transform: translateY(-1px);
+}
+.task-title {
+  display: block;
+  color: var(--zs-text);
+  font-size: 14px;
+  font-weight: 560;
+  line-height: 1.62;
+  word-break: break-word;
+}
+.task-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  color: var(--zs-muted);
+  font-size: 12px;
+}
 
-/* =========== 新版直观的“创建任务”按钮样式 =========== */
 .new-task-button-v2 {
   width: 100%;
-  height: 40px;
+  height: 42px;
   margin-bottom: 18px;
   border-radius: 12px;
   font-size: 14px;
@@ -1162,38 +1897,424 @@ onBeforeUnmount(() => { clearInterval(runPollTimer) })
   align-items: center;
   justify-content: center;
 }
-/* =================================================== */
 
 .task-card, .workflow-panel, .inspector-card {
-  max-width: 1080px; margin: 0 auto 18px; padding: 18px;
-  border: 1px solid var(--zs-border); border-radius: 24px; background: var(--zs-panel);
+  max-width: 1080px;
+  margin: 0 auto 20px;
+  padding: 22px;
+  border: 1px solid var(--zs-border);
+  border-radius: 24px;
+  background: var(--zs-panel);
 }
 .status-strip { max-width: 1080px; margin: 0 auto 18px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .status-card { padding: 14px; border: 1px solid var(--zs-border); border-radius: 16px; background: var(--zs-panel-soft); }
-.panel-head { display: flex; justify-content: space-between; margin-bottom: 14px; }
-.panel-actions, .artifact-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.stage-item { display: grid; grid-template-columns: 38px 1fr auto; gap: 12px; padding: 12px; border: 1px solid var(--zs-border); border-radius: 16px; margin-bottom: 8px; }
+.status-card span { color: var(--zs-muted); font-size: 13px; }
+.status-card strong { display: block; margin-top: 7px; font-size: 15px; color: var(--zs-text); }
+.panel-head { display: flex; justify-content: space-between; margin-bottom: 16px; gap: 14px; }
+.panel-title { color: var(--zs-text); font-size: 16px; font-weight: 660; }
+.panel-subtitle { margin-top: 5px; color: var(--zs-muted); font-size: 13px; line-height: 1.68; }
+.panel-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.stage-item { display: grid; grid-template-columns: 38px 1fr auto; gap: 14px; padding: 15px; border: 1px solid var(--zs-border); border-radius: 16px; margin-bottom: 10px; }
+.stage-title { color: var(--zs-text); font-size: 14px; font-weight: 620; }
+.stage-desc { margin-top: 5px; color: var(--zs-muted); font-size: 13px; line-height: 1.64; }
+.task-desc-card {
+  padding-bottom: 14px;
+}
+.task-desc-head {
+  margin-bottom: 4px;
+}
+.task-desc-text {
+  margin-top: 8px;
+  color: var(--zs-text);
+  font-size: 15px;
+  line-height: 1.78;
+  max-width: 760px;
+}
 
-/* 报告与图表 */
-.report-summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px;}
-.report-summary-card { padding: 12px; border: 1px solid var(--zs-border); border-radius: 16px; }
-.report-section { padding: 14px; border: 1px solid var(--zs-border); border-radius: 16px; margin-bottom: 12px; }
+.progress-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.progress-overview-item {
+  padding: 12px 14px;
+  border: 1px solid var(--zs-border);
+  border-radius: 14px;
+  background: linear-gradient(140deg, var(--zs-panel-soft), var(--zs-panel));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+.overview-label {
+  display: block;
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+.overview-value {
+  display: block;
+  margin-top: 6px;
+  color: var(--zs-text);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+  word-break: break-word;
+}
+.progress-overview-item.status-running .overview-value {
+  color: #54c0ff;
+}
+.progress-overview-item.status-waiting_human .overview-value {
+  color: #f1c15b;
+}
+.progress-overview-item.status-completed .overview-value {
+  color: #52c37f;
+}
+.progress-overview-item.status-failed .overview-value {
+  color: #ef6a6a;
+}
+.main-progress {
+  margin-bottom: 14px;
+}
+.stage-list {
+  margin-top: 8px;
+}
+
+.artifact-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.artifact-view-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--zs-border);
+  border-radius: 999px;
+  background: var(--zs-panel-soft);
+}
+.artifact-view-button {
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--zs-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.artifact-view-button.active {
+  color: var(--zs-text);
+  background: var(--zs-elevated);
+}
+.artifact-view-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.report-visual {
+  margin-top: 6px;
+}
+.report-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.report-summary-card {
+  padding: 12px 14px;
+  border: 1px solid var(--zs-border);
+  border-radius: 16px;
+  background: var(--zs-panel-soft);
+}
+.summary-label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+.summary-value {
+  display: block;
+  color: var(--zs-text);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.report-section {
+  padding: 12px 14px;
+  border: 1px solid var(--zs-border);
+  border-radius: 16px;
+  margin-bottom: 12px;
+}
+.report-section > span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--zs-muted);
+  font-size: 13px;
+  font-weight: 620;
+}
+.report-section p {
+  margin: 0;
+  color: var(--zs-text);
+  line-height: 1.7;
+}
+.report-section ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.report-section li {
+  margin: 4px 0;
+  color: var(--zs-text);
+  line-height: 1.66;
+}
+.report-advice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.report-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.report-tags span {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--zs-border);
+  background: var(--zs-panel-soft);
+  color: var(--zs-text);
+  font-size: 12px;
+  line-height: 1.2;
+}
+.feature-importance-section {
+  height: 350px;
+  overflow: hidden;
+}
+.section-title {
+  margin-bottom: 8px;
+}
 .chart { width: 100%; height: 100%; min-height: 300px; }
+.report-block {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--zs-border);
+  border-radius: 16px;
+}
+.report-block-head strong {
+  color: var(--zs-text);
+  font-size: 15px;
+}
+.report-block-head span {
+  display: block;
+  margin-top: 4px;
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+.report-table-shell {
+  margin-top: 12px;
+}
+.report-table {
+  margin-top: 12px;
+}
+.report-note {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--zs-border);
+  border-radius: 12px;
+  color: var(--zs-muted);
+  font-size: 13px;
+  line-height: 1.64;
+}
 
-/* Web Demo 专属样式 */
 .demo-tabs { margin-top: 10px; }
 .web-demo-form { padding: 18px; border: 1px solid var(--zs-border); border-radius: 12px; background: var(--zs-panel-soft); }
 .demo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
 .demo-actions { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; }
 .demo-result { margin-top: 16px; padding: 12px 16px; border-radius: 8px; font-size: 14px; }
-.demo-result.success { background: rgba(125, 211, 167, 0.15); border: 1px solid var(--zs-success); color: var(--zs-text); }
-.demo-result.error { background: rgba(255, 138, 138, 0.15); border: 1px solid var(--zs-danger); color: var(--zs-danger); }
-.prediction-table-wrap { border: 1px solid var(--zs-border); border-radius: 16px; overflow: hidden; }
+.demo-result.success { background: rgba(125, 211, 167, 0.15); border: 1px solid #36b37e; color: var(--zs-text); }
+.demo-result.error { background: rgba(255, 138, 138, 0.15); border: 1px solid #ef6a6a; color: #ef6a6a; }
+.batch-head-actions {
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.prediction-table-wrap {
+  border: 1px solid var(--zs-border);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--zs-panel);
+}
+.row-index-hint {
+  padding: 8px 12px;
+  border-bottom: 1px dashed var(--zs-border);
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+.row-index-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.row-index-head-mark {
+  color: var(--zs-text);
+  font-weight: 700;
+}
+.row-index-head-text {
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+.row-index-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.row-index {
+  color: var(--zs-text);
+  font-size: 12px;
+  min-width: 14px;
+}
+.row-delete-button {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid var(--zs-border);
+  background: var(--zs-panel-soft);
+  color: var(--zs-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+.row-delete-button:hover {
+  border-color: #e35d6a;
+  color: #e35d6a;
+  background: rgba(227, 93, 106, 0.1);
+}
+.prediction-footer {
+  padding: 10px 12px 12px;
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--zs-border);
+}
+.predict-actions {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--zs-border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 
-/* Monaco 样式修复 */
-.code-visual { border: 1px solid var(--zs-border); border-radius: 8px; overflow: hidden; }
+.code-visual {
+  border: 1px solid var(--zs-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.code-visual-head {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--zs-border);
+  background: var(--zs-panel-soft);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.code-visual-head span {
+  color: var(--zs-text);
+  font-size: 13px;
+  font-weight: 640;
+}
+.code-visual-head small {
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+.code-resize-shell {
+  width: 100%;
+  min-height: 420px;
+  max-height: 1200px;
+  resize: vertical;
+  overflow: auto;
+}
+.review-code-resize-shell {
+  min-height: 420px;
+}
 
-/* ================= 补回丢失的弹窗排版样式 ================= */
+.review-current-strip {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--zs-border);
+  border-radius: 12px;
+  background: var(--zs-panel-soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+.review-warning {
+  margin-top: 8px;
+  color: #e5812b;
+  font-size: 12px;
+}
+.strategy-current-grid {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+.strategy-current-card {
+  border: 1px solid var(--zs-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--zs-panel-soft);
+}
+.strategy-current-card span {
+  display: block;
+  color: var(--zs-muted);
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+.strategy-current-card strong {
+  color: var(--zs-text);
+  font-size: 14px;
+}
+.review-code-toolbar {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+.review-code-shell {
+  margin-top: 10px;
+  border: 1px solid var(--zs-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.review-code-empty {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--zs-border);
+  border-radius: 10px;
+  background: var(--zs-panel-soft);
+  color: var(--zs-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+.review-code-empty.warning {
+  border-color: #e0a75e;
+  color: #d79545;
+}
+
 .create-task-dialog :deep(.el-dialog__body) { max-height: calc(100vh - 220px); overflow: auto; }
 .create-shell { display: grid; gap: 14px; }
 .create-section { padding: 14px; border: 1px solid var(--zs-border); border-radius: 16px; background: var(--zs-panel-soft); }
@@ -1204,5 +2325,91 @@ onBeforeUnmount(() => { clearInterval(runPollTimer) })
 .upload-progress { margin-top: 10px; }
 .section-alert { margin-bottom: 10px; }
 .parse-panel { margin-top: 12px; }
-.modal-empty { padding: 18px 8px; color: var(--zs-muted); font-size: 13px; }
+.modal-empty { padding: 18px 8px; color: var(--zs-muted); font-size: 13px; line-height: 1.6; }
+
+:deep(.report-table.compact .el-table__cell) {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+:deep(.prediction-table-wrap .el-table) {
+  --el-table-header-bg-color: var(--zs-panel-soft);
+  --el-table-bg-color: var(--zs-panel);
+  --el-table-tr-bg-color: var(--zs-panel);
+  --el-table-text-color: var(--zs-text);
+  --el-table-header-text-color: var(--zs-text);
+  --el-table-border-color: var(--zs-border);
+}
+:deep(.prediction-footer .el-pagination) {
+  --el-pagination-text-color: var(--zs-text);
+  --el-pagination-button-color: var(--zs-text);
+  --el-pagination-button-bg-color: var(--zs-elevated);
+  --el-pagination-button-disabled-color: var(--zs-subtle);
+  --el-pagination-button-disabled-bg-color: var(--zs-panel-soft);
+  --el-pagination-hover-color: #6fb0ff;
+}
+:deep(.prediction-footer .el-pagination.is-background .el-pager li) {
+  background: var(--zs-elevated) !important;
+  color: var(--zs-text) !important;
+  border: 1px solid var(--zs-border) !important;
+  opacity: 1 !important;
+}
+:deep(.prediction-footer .el-pagination.is-background .btn-prev),
+:deep(.prediction-footer .el-pagination.is-background .btn-next) {
+  background: var(--zs-elevated) !important;
+  color: var(--zs-text) !important;
+  border: 1px solid var(--zs-border) !important;
+}
+:deep(.prediction-footer .el-pagination.is-background .el-pager li.is-active) {
+  background: #3f8ef4 !important;
+  border-color: #3f8ef4 !important;
+  color: #ffffff !important;
+}
+:deep(.prediction-footer .el-pagination.is-background .btn-prev:disabled),
+:deep(.prediction-footer .el-pagination.is-background .btn-next:disabled) {
+  background: var(--zs-panel-soft) !important;
+  color: var(--zs-subtle) !important;
+  border-color: var(--zs-border) !important;
+}
+
+@media (max-width: 1200px) {
+  .agent-console {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+  .agent-main {
+    padding: 24px 20px;
+  }
+  .status-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .report-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .progress-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .agent-console {
+    display: block;
+  }
+  .task-rail {
+    border-right: 0;
+    border-bottom: 1px solid var(--zs-border);
+  }
+  .status-strip {
+    grid-template-columns: 1fr;
+  }
+  .report-summary-grid {
+    grid-template-columns: 1fr;
+  }
+  .artifact-toolbar,
+  .panel-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .progress-overview {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
