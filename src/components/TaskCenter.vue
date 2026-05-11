@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="agent-console">
     <aside class="task-rail">
       <el-button type="primary" class="new-task-button-v2" @click="openCreateDialog">
@@ -468,22 +468,12 @@
         <section class="create-section">
           <div class="create-section-head">
             <div>
-              <div class="panel-title">1. 需求输入与解析</div>
-              <div class="panel-subtitle">提交文本给后端解析，并确认解析结果后再创建任务。</div>
-            </div>
-            <div class="panel-actions">
-              <el-button plain :loading="parsingRequirement" @click="parseRequirementText">
-                <el-icon><MagicStick /></el-icon>
-                提交解析
-              </el-button>
-              <el-button type="primary" plain :disabled="!parsedResultRaw" @click="confirmParsedRequirement">
-                确认解析
-              </el-button>
+              <div class="panel-title">1. 需求输入</div>
             </div>
           </div>
 
           <el-form label-position="top">
-            <el-form-item label="建模需求">
+            <el-form-item>
               <el-input
                 v-model="draftTaskDesc"
                 type="textarea"
@@ -495,24 +485,6 @@
               />
             </el-form-item>
           </el-form>
-
-          <el-alert
-            v-if="parseResultNotice"
-            class="section-alert"
-            :title="parseResultNotice"
-            :type="parseSource === 'mock' ? 'warning' : 'success'"
-            :closable="false"
-            show-icon
-          />
-
-          <div v-if="parsedResultRaw" class="parse-panel">
-            <el-descriptions border :column="2">
-              <el-descriptions-item label="任务类型">{{ parsedTaskType || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="目标列">{{ parsedTargetColumn || '-' }}</el-descriptions-item>
-              <el-descriptions-item label="确认状态">{{ parsedConfirmed ? '已确认' : '待确认' }}</el-descriptions-item>
-              <el-descriptions-item label="解析来源">{{ parseSource === 'mock' ? '前端回退' : '后端接口' }}</el-descriptions-item>
-            </el-descriptions>
-          </div>
         </section>
 
         <section class="create-section">
@@ -754,7 +726,6 @@ import {
   fetchAgentTasks,
   fetchDatasetPreview,
   fetchPendingReview,
-  parseAgentTaskDescription,
   predictAgentTask,
   resumeAgentTask,
   runAgentTask,
@@ -800,11 +771,6 @@ const draftDatasetId = ref(null)
 const draftDatasetName = ref('')
 const draftPreviewRows = ref([])
 const draftRunOffline = ref(true)
-const parsingRequirement = ref(false)
-const parsedResultRaw = ref(null)
-const parsedConfirmed = ref(false)
-const parseSource = ref('')
-const parseResultNotice = ref('')
 const uploadingDataset = ref(false)
 const uploadProgress = ref(0)
 const selectedHitlStages = ref([])
@@ -878,8 +844,6 @@ const resolvedReviewStage = computed(() =>
   )
 )
 const reviewStageLabel = computed(() => reviewStageTitleMap[resolvedReviewStage.value] || resolvedReviewStage.value || '-')
-const parsedTaskType = computed(() => parsedResultRaw.value?.task_type || parsedResultRaw.value?.type || parsedResultRaw.value?.model_type || '')
-const parsedTargetColumn = computed(() => parsedResultRaw.value?.target_column || parsedResultRaw.value?.target || parsedResultRaw.value?.label_column || '')
 
 const activeStageKey = computed(() => {
   if (!currentStage.value) return ''
@@ -1394,11 +1358,6 @@ const buildEmptyFeatureRecord = () => {
   })
   return features
 }
-const guessTaskType = (text) => /(分类|是否|欺诈)/.test(`${text}`.toLowerCase()) ? 'classification' : 'regression'
-const guessTargetColumn = (text) => {
-  const matched = `${text}`.match(/预测\s*([a-zA-Z_][\w]*)/i)
-  return matched?.[1] || ''
-}
 const SCI_NOTATION_UPPER_BOUND = 1e6
 const SCI_NOTATION_LOWER_BOUND = 1e-4
 const MAX_DECIMAL_PLACES = 6
@@ -1497,10 +1456,6 @@ const syncTaskState = (task) => {
 const openCreateDialog = () => {
   draftTaskDesc.value = ''
   draftDatasetId.value = null
-  parsedResultRaw.value = null
-  parsedConfirmed.value = false
-  parseSource.value = ''
-  parseResultNotice.value = ''
   uploadProgress.value = 0
   selectedHitlStages.value = []
   createDialogVisible.value = true
@@ -1514,24 +1469,6 @@ const openPreviewDialog = async () => {
     previewDialogVisible.value = true
   } catch (error) { ElMessage.error('预览失败') }
 }
-
-const parseRequirementText = async () => {
-  parsingRequirement.value = true
-  try {
-    const text = draftTaskDesc.value.trim()
-    const result = await parseAgentTaskDescription(text)
-    const parsed = result?.data?.parsed_result || result || {}
-    parsedResultRaw.value = { task_type: parsed.task_type || guessTaskType(text), target_column: parsed.target_column || guessTargetColumn(text) }
-    parseSource.value = 'remote'
-    parseResultNotice.value = '解析成功，请确认。'
-  } catch {
-    parsedResultRaw.value = { task_type: guessTaskType(draftTaskDesc.value), target_column: guessTargetColumn(draftTaskDesc.value) }
-    parseSource.value = 'mock'
-    parseResultNotice.value = '已切换到前端模拟解析结果。'
-  } finally { parsingRequirement.value = false }
-}
-
-const confirmParsedRequirement = () => { parsedConfirmed.value = true; ElMessage.success('解析结果已确认') }
 
 const beforeCsvUpload = (file) => {
   if (!file.name.toLowerCase().endsWith('.csv') && file.type !== 'text/csv') return ElMessage.error('仅支持 CSV 文件') && false
@@ -1549,7 +1486,7 @@ const handleDatasetUpload = async ({ file, onSuccess, onError }) => {
 }
 
 const createAndRunTask = async () => {
-  if (!parsedConfirmed.value || !draftTaskDesc.value.trim() || !draftDatasetId.value) return ElMessage.warning('请完善表单并确认解析')
+  if (!draftTaskDesc.value.trim() || !draftDatasetId.value) return ElMessage.warning('请填写建模需求并上传数据集')
   creating.value = true
   try {
     const hitlStages = canReview.value ? [...selectedHitlStages.value] : []
@@ -2649,8 +2586,6 @@ onBeforeUnmount(() => {
 .upload-dropzone :deep(.el-upload-dragger) { width: 100%; }
 .upload-icon { margin-bottom: 4px; }
 .upload-progress { margin-top: 10px; }
-.section-alert { margin-bottom: 10px; }
-.parse-panel { margin-top: 12px; }
 .modal-empty { padding: 18px 8px; color: var(--zs-muted); font-size: 13px; line-height: 1.6; }
 
 :deep(.report-table.compact .el-table__cell) {
