@@ -231,10 +231,14 @@
                     min-width="150"
                   >
                     <template #default="{ row }">
-                      <el-input v-model="row.features[column]" placeholder="-" />
+                      <el-input
+                        v-model="row.features[column]"
+                        placeholder="-"
+                        @blur="formatPredictionFeatureCell(row, column)"
+                      />
                     </template>
                   </el-table-column>
-                  <el-table-column label="预测值" min-width="150" fixed="right">
+                  <el-table-column label="预测值" min-width="150" show-overflow-tooltip>
                     <template #default="{ row }">
                       <span class="prediction-value">{{ formatPredictionValue(row.prediction) }}</span>
                     </template>
@@ -1395,7 +1399,73 @@ const guessTargetColumn = (text) => {
   const matched = `${text}`.match(/预测\s*([a-zA-Z_][\w]*)/i)
   return matched?.[1] || ''
 }
-const formatPredictionValue = (value) => value === undefined || value === null || value === '' ? '-' : typeof value === 'object' ? JSON.stringify(value) : String(value)
+const SCI_NOTATION_UPPER_BOUND = 1e6
+const SCI_NOTATION_LOWER_BOUND = 1e-4
+const MAX_DECIMAL_PLACES = 6
+const trimDecimalZeros = (text) => text.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '')
+const normalizeExponentialText = (text) => (
+  text
+    .replace(/(\.\d*?[1-9])0+e/i, '$1e')
+    .replace(/\.0+e/i, 'e')
+    .replace(/e\+/i, 'e')
+)
+const formatCompactNumericValue = (value) => {
+  if (value === undefined || value === null || value === '') return null
+  if (typeof value === 'object') return null
+  const source = typeof value === 'string' ? value.trim() : value
+  if (source === '') return null
+  const numericValue = typeof source === 'number' ? source : Number(source)
+  if (!Number.isFinite(numericValue)) return null
+  const absValue = Math.abs(numericValue)
+  if (absValue !== 0 && (absValue >= SCI_NOTATION_UPPER_BOUND || absValue < SCI_NOTATION_LOWER_BOUND)) {
+    return normalizeExponentialText(numericValue.toExponential(4))
+  }
+  if (Number.isInteger(numericValue)) return String(numericValue)
+  return trimDecimalZeros(numericValue.toFixed(MAX_DECIMAL_PLACES))
+}
+const normalizeFeatureRecordForDisplay = (record = {}) => {
+  const normalized = {}
+  Object.entries(record || {}).forEach(([key, value]) => {
+    const formatted = formatCompactNumericValue(value)
+    normalized[key] = formatted ?? value
+  })
+  return normalized
+}
+const normalizeFeatureRecordForRequest = (record = {}) => {
+  const normalized = {}
+  Object.entries(record || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') {
+      normalized[key] = value
+      return
+    }
+    if (typeof value === 'number') {
+      normalized[key] = value
+      return
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (!trimmed) {
+        normalized[key] = ''
+        return
+      }
+      const numericValue = Number(trimmed)
+      normalized[key] = Number.isFinite(numericValue) ? numericValue : value
+      return
+    }
+    normalized[key] = value
+  })
+  return normalized
+}
+const formatPredictionFeatureCell = (row, column) => {
+  if (!row?.features || !column) return
+  const formatted = formatCompactNumericValue(row.features[column])
+  if (formatted !== null) row.features[column] = formatted
+}
+const formatPredictionValue = (value) => {
+  if (value === undefined || value === null || value === '') return '-'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return formatCompactNumericValue(value) ?? String(value)
+}
 const formatReportValue = (value) => value === undefined || value === null || value === '' ? '-' : typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(4) : String(value)
 const downloadJson = (value, filename) => {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json;charset=utf-8' })
@@ -1803,7 +1873,8 @@ const fillPredictionSample = () => {
     predictionRows.value = (previewRows.value.slice(0, 5)).map((row, index) => {
       const features = {}
       predictionColumns.value.forEach((col) => {
-        features[col] = row[col] ?? ''
+        const rawValue = row[col] ?? ''
+        features[col] = formatCompactNumericValue(rawValue) ?? rawValue
       })
       return { id: `sample_${Date.now()}_${index}`, features, prediction: '' }
     })
@@ -1839,7 +1910,7 @@ const runSinglePrediction = async () => {
 const runPrediction = async () => {
   predicting.value = true
   try {
-    const rows = predictionRows.value.map(r => r.features)
+    const rows = predictionRows.value.map((row) => normalizeFeatureRecordForRequest(row.features))
     const result = await predictAgentTask(currentTaskId.value, { features: rows })
     const records = Array.isArray(result?.predictions) ? result.predictions : []
     predictionRows.value = predictionRows.value.map((r, i) => ({ ...r, prediction: records[i]?.prediction ?? (Array.isArray(result?.prediction) ? result.prediction[i] : result?.prediction) }))
@@ -1849,7 +1920,16 @@ const runPrediction = async () => {
 // 其他弹窗功能（保持原有精简）
 const openPredictionJsonDialog = () => { predictionJsonDialogVisible.value = true }
 const confirmPredictionJsonImport = () => {
-  try { predictionRows.value = JSON.parse(predictionJsonText.value).map((r, i) => ({ id: `json_${i}`, features: r, prediction: '' })); predictionJsonDialogVisible.value = false }
+  try {
+    const parsedRows = JSON.parse(predictionJsonText.value)
+    if (!Array.isArray(parsedRows)) throw new Error('invalid payload')
+    predictionRows.value = parsedRows.map((row, index) => {
+      const rawFeatures = row && typeof row === 'object' && !Array.isArray(row) ? { ...row } : {}
+      delete rawFeatures.prediction
+      return { id: `json_${index}`, features: normalizeFeatureRecordForDisplay(rawFeatures), prediction: '' }
+    })
+    predictionJsonDialogVisible.value = false
+  }
   catch { ElMessage.error('JSON 格式不正确') }
 }
 const addPredictionRow = () => {
@@ -2429,6 +2509,13 @@ onBeforeUnmount(() => {
   border-color: #e35d6a;
   color: #e35d6a;
   background: rgba(227, 93, 106, 0.1);
+}
+.prediction-value {
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .prediction-footer {
   padding: 10px 12px 12px;
