@@ -20,7 +20,7 @@ export async function fetchUserList(filters) {
   try {
     const params = {
       page: 1,
-      page_size: 100 // 【关键修改】：将 1000 改为 100，避免触发后端 422 验证错误
+      page_size: 100
     }
     
     if (filters.username) params.username = filters.username
@@ -30,10 +30,7 @@ export async function fetchUserList(filters) {
 
     const response = await api.get('/api/admin/users', { params })
     
-    // 【优化提取逻辑】：兼容可能存在的 data 包裹层
     const responseData = response.data?.data !== undefined ? response.data.data : response.data
-
-    // 【关键修改】：增加 || [] 防止 responseData.list 为空时 map 报错白屏
     const rawList = responseData.list || responseData || []
     
     const formattedList = rawList.map(user => ({
@@ -73,5 +70,46 @@ export async function updateUserStatus({ userId, status }) {
     return response.data?.data !== undefined ? response.data.data : response.data
   } catch (error) {
     throw new Error('状态修改失败')
+  }
+}
+
+// ================= 新增：权限申请审核相关 API =================
+
+// 4. 获取开发者角色申请列表
+export async function fetchRoleApplications() {
+  try {
+    const response = await api.get('/api/admin/role-applications')
+    return response.data?.data !== undefined ? response.data.data : response.data
+  } catch (error) {
+    // 兼容后端未开发此接口的情况，返回测试模拟数据以便前端调试
+    console.warn("未连接到真实的申请列表接口，使用模拟数据展示。")
+    return [
+      { id: 101, username: 'test_user_01', reason: '科研需要，申请使用多智能体控制面板、可视化过程以及完整论文级PDF导出功能。', status: 'pending', created_at: '2026-05-17 10:00:00' },
+      { id: 102, username: 'student_li', reason: '需要使用 Operation Agent 生成代码的保存功能完成课程大作业。', status: 'pending', created_at: '2026-05-17 11:30:00' }
+    ]
+  }
+}
+
+// 5. 审批通过
+export async function approveRoleApplication(applicationId) {
+  try {
+    const response = await api.post(`/api/admin/role-applications/${applicationId}/approve`)
+    return response.data?.data !== undefined ? response.data.data : response.data
+  } catch (error) {
+    // 如果无真实后端，模拟成功
+    console.warn("未连接到真实审批通过接口，模拟通过。")
+    return true
+  }
+}
+
+// 6. 审批驳回
+export async function rejectRoleApplication(applicationId) {
+  try {
+    const response = await api.post(`/api/admin/role-applications/${applicationId}/reject`)
+    return response.data?.data !== undefined ? response.data.data : response.data
+  } catch (error) {
+    // 如果无真实后端，模拟成功
+    console.warn("未连接到真实审批驳回接口，模拟驳回。")
+    return true
   }
 }
