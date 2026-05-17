@@ -134,26 +134,117 @@
           />
 
           <div class="stage-list">
-            <div v-for="stage in stages" :key="stage.key" class="stage-item" :class="stage.status">
-              <div class="stage-icon">
-                <el-icon><component :is="stage.icon" /></el-icon>
+            <div
+              v-for="stage in stages"
+              :key="stage.key"
+              class="stage-row"
+            >
+              <div
+                class="stage-item"
+                :class="[stage.status, { selected: selectedStageKey === stage.key, 'has-output': stage.hasOutput }]"
+                @click="selectStageDetails(stage.key)"
+              >
+                <div class="stage-icon">
+                  <el-icon><component :is="stage.icon" /></el-icon>
+                </div>
+                <div>
+                  <div class="stage-title">{{ stage.title }}</div>
+                  <div class="stage-desc">{{ stage.desc }}</div>
+                </div>
+                <div class="stage-tail">
+                  <el-button
+                    v-if="stage.canReview"
+                    size="small"
+                    type="warning"
+                    plain
+                    :disabled="!canReview"
+                    @click.stop="openReviewDialog"
+                  >
+                    审核
+                  </el-button>
+                  <el-button
+                    v-else-if="stage.hasOutput"
+                    size="small"
+                    plain
+                    :type="selectedStageKey === stage.key ? 'primary' : 'default'"
+                    @click.stop="selectStageDetails(stage.key)"
+                  >
+                    {{ selectedStageKey === stage.key ? '收起' : '详情' }}
+                  </el-button>
+                  <span v-else class="stage-state">{{ stageLabelMap[stage.status] }}</span>
+                </div>
               </div>
-              <div>
-                <div class="stage-title">{{ stage.title }}</div>
-                <div class="stage-desc">{{ stage.desc }}</div>
-              </div>
-              <div class="stage-tail">
-                <el-button
-                  v-if="stage.canReview"
-                  size="small"
-                  type="warning"
-                  plain
-                  :disabled="!canReview"
-                  @click="openReviewDialog"
-                >
-                  审核
-                </el-button>
-                <span v-else class="stage-state">{{ stageLabelMap[stage.status] }}</span>
+
+              <div v-if="selectedStageKey === stage.key" class="stage-detail-panel">
+                <div class="stage-detail-head">
+                  <div>
+                    <div class="stage-detail-title">{{ selectedStageDetail.title }}</div>
+                    <div class="stage-detail-subtitle">{{ selectedStageDetail.desc }}</div>
+                  </div>
+                  <span class="stage-detail-badge" :class="{ ready: hasSelectedNodeOutput }">
+                    {{ hasSelectedNodeOutput ? '已产出' : '暂无产出' }}
+                  </span>
+                </div>
+
+                <div v-if="hasSelectedNodeOutput" class="stage-detail-body">
+                  <div v-if="selectedStageRows.length" class="stage-detail-grid">
+                    <div v-for="item in selectedStageRows" :key="item.label" class="stage-detail-card">
+                      <span>{{ item.label }}</span>
+                      <strong>{{ item.value }}</strong>
+                    </div>
+                  </div>
+
+                  <div v-if="stage.key === 'operation_report' && currentReport" class="stage-report-preview">
+                    <div v-if="currentReport.summary" class="stage-report-section">
+                      <span>报告摘要</span>
+                      <p>{{ currentReport.summary }}</p>
+                    </div>
+                    <div v-if="reportRecommendations.length || reportRiskNotes.length" class="stage-report-grid">
+                      <div v-if="reportRecommendations.length" class="stage-report-section">
+                        <span>使用建议</span>
+                        <ul>
+                          <li v-for="item in reportRecommendations" :key="item">{{ item }}</li>
+                        </ul>
+                      </div>
+                      <div v-if="reportRiskNotes.length" class="stage-report-section">
+                        <span>风险提示</span>
+                        <ul>
+                          <li v-for="item in reportRiskNotes" :key="item">{{ item }}</li>
+                        </ul>
+                      </div>
+                    </div>
+                    <div class="stage-report-section">
+                      <span>核心指标</span>
+                      <div class="stage-report-metrics">
+                        <div v-for="item in reportTrainingRows.slice(0, 6)" :key="item.label">
+                          <span>{{ item.label }}</span>
+                          <strong>{{ item.value }}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div v-if="stage.key === 'code_generation'" class="stage-code-preview">
+                    <div class="stage-code-head">
+                      <span>生成代码预览</span>
+                      <small v-if="stageCodePreviewPath">{{ stageCodePreviewPath }}</small>
+                    </div>
+                    <div v-if="stageCodePreviewLoading" class="stage-detail-empty">正在读取代码文件...</div>
+                    <pre v-else-if="stageCodePreviewText">{{ stageCodePreviewText }}</pre>
+                    <div v-else class="stage-detail-empty">暂未读取到代码正文。</div>
+                  </div>
+
+                  <div class="stage-json-block">
+                    <div class="stage-json-head">
+                      <span>{{ stage.key === 'operation_report' && currentReport ? '报告 JSON' : '节点原始输出' }}</span>
+                      <el-button size="small" plain @click="copySelectedStageJson">复制 JSON</el-button>
+                    </div>
+                    <pre>{{ selectedStageJson }}</pre>
+                  </div>
+                </div>
+                <div v-else class="stage-detail-empty">
+                  该 Agent 节点尚未产生可展示结果。任务运行到对应节点后会自动显示结构化摘要和原始 JSON。
+                </div>
               </div>
             </div>
           </div>
@@ -797,6 +888,10 @@ let themeObserver = null
 const taskListVisibleCount = ref(24)
 const taskListPageSize = 24
 const loadingMoreTaskItems = ref(false)
+const selectedStageKey = ref('manager_parse')
+const stageCodePreviewText = ref('')
+const stageCodePreviewPath = ref('')
+const stageCodePreviewLoading = ref(false)
 
 const canReview = computed(() => ['ADMIN', 'DEVELOPER'].includes(userStore.role))
 const hitlOptions = [
@@ -1076,6 +1171,32 @@ const reportExternalReferences = computed(() => {
   return deduped
 })
 const reportFeatureImportance = computed(() => normalizeFeatureImportance(reportModelTraining.value?.feature_importance || currentReport.value?.feature_importance))
+const taskState = computed(() => currentTask.value?.state || {})
+const nodeOutputs = computed(() => {
+  const context = taskState.value?.context || {}
+  const outputs = context.node_outputs || currentTask.value?.node_outputs || {}
+  return outputs && typeof outputs === 'object' ? outputs : {}
+})
+const selectedStageDefinition = computed(() =>
+  stageDefinitions.find((item) => item.key === selectedStageKey.value) || stageDefinitions[0]
+)
+const selectedStageDetail = computed(() => selectedStageDefinition.value || { title: '-', desc: '-' })
+const selectedNodeOutput = computed(() => {
+  if (selectedStageKey.value === 'operation_report' && currentReport.value) return currentReport.value
+  if (selectedStageKey.value === 'code_generation' && stageCodePreviewText.value) {
+    return {
+      ...(nodeOutputs.value?.code_generation || {}),
+      python_code: stageCodePreviewText.value,
+      code_path: stageCodePreviewPath.value || nodeOutputs.value?.code_generation?.generated_code || nodeOutputs.value?.code_generation?.code_path
+    }
+  }
+  return nodeOutputs.value?.[selectedStageKey.value] || {}
+})
+const hasSelectedNodeOutput = computed(() =>
+  selectedNodeOutput.value && typeof selectedNodeOutput.value === 'object' && Object.keys(selectedNodeOutput.value).length > 0
+)
+const selectedStageJson = computed(() => JSON.stringify(selectedNodeOutput.value || {}, null, 2))
+const selectedStageRows = computed(() => buildStageSummaryRows(selectedStageKey.value, selectedNodeOutput.value))
 
 const stages = computed(() => {
   const reviewStage = lifecycleStatus.value === 'WAITING_HUMAN' ? resolvedReviewStage.value : ''
@@ -1088,7 +1209,9 @@ const stages = computed(() => {
     else if (reviewStage && item.review === reviewStage) status = 'review'
     else if (currentIndex >= 0 && index < currentIndex) status = 'done'
     else if (currentIndex >= 0 && index === currentIndex) status = 'running'
-    return { ...item, status, canReview: status === 'review' }
+    const output = nodeOutputs.value?.[item.key]
+    const hasOutput = output && typeof output === 'object' && Object.keys(output).length > 0
+    return { ...item, status, canReview: status === 'review', hasOutput }
   })
 })
 
@@ -1426,6 +1549,125 @@ const formatPredictionValue = (value) => {
   return formatCompactNumericValue(value) ?? String(value)
 }
 const formatReportValue = (value) => value === undefined || value === null || value === '' ? '-' : typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(4) : String(value)
+const formatStageValue = (value) => {
+  if (value === undefined || value === null || value === '') return '-'
+  if (Array.isArray(value)) {
+    if (!value.length) return '0'
+    return value.every((item) => ['string', 'number', 'boolean'].includes(typeof item))
+      ? value.join('、')
+      : `${value.length} 项`
+  }
+  if (typeof value === 'object') return `${Object.keys(value).length} 项`
+  return formatReportValue(value)
+}
+const buildStageSummaryRows = (stageKey, output = {}) => {
+  if (!output || typeof output !== 'object') return []
+  const rows = []
+  const addRow = (label, value) => {
+    const formatted = formatStageValue(value)
+    if (formatted !== '-') rows.push({ label, value: formatted })
+  }
+
+  if (stageKey === 'manager_parse') {
+    addRow('任务类型', output.task_type || output.problem_type)
+    addRow('目标列', output.target_column)
+    addRow('特征列', normalizeColumnList(output.feature_columns || output.features).length)
+    addRow('解析原因', output.reason || output.parse_reason || output.selection_reason)
+  } else if (stageKey === 'data_analysis') {
+    addRow('数据行数', output.row_count)
+    addRow('字段数量', output.column_count || output.columns?.length)
+    addRow('目标列', output.target_column)
+    addRow('特征列', normalizeColumnList(output.feature_columns).length)
+    addRow('数值列', normalizeColumnList(output.numeric_columns).length)
+    addRow('选列说明', output.selection_reason || output.llm_output?.selection_reason)
+  } else if (stageKey === 'model_plan') {
+    addRow('主指标', output.primary_metric)
+    addRow('候选模型', output.candidate_models)
+    addRow('切分比例', output.test_size || output.split_ratio)
+    addRow('预处理策略', output.preprocess_strategy || output.preprocessing)
+    addRow('LLM 参与', output.llm_used)
+  } else if (stageKey === 'model_training') {
+    addRow('最佳模型', output.best_model?.model_name || output.best_model)
+    addRow('主指标', output.metrics?.metric)
+    addRow('指标得分', output.metrics?.score ?? output.metrics?.[output.metrics?.metric])
+    addRow('候选模型', output.candidate_models?.length)
+    addRow('特征重要性', normalizeFeatureImportance(output.feature_importance).length)
+  } else if (stageKey === 'code_generation') {
+    addRow('代码状态', output.python_code ? '已读取代码正文' : '待读取代码正文')
+    addRow('预测接口', output.web_demo)
+    addRow('代码长度', typeof output.python_code === 'string' ? `${output.python_code.length} 字符` : '')
+  } else if (stageKey === 'operation_report') {
+    addRow('任务 ID', output.task_id || currentTaskId.value)
+    addRow('任务类型', output.task_type || reportTaskType.value)
+    addRow('目标列', output.target_column || reportTargetColumn.value)
+    addRow('最佳模型', output.model_training?.best_model?.model_name || output.model_result?.best_model?.model_name || reportBestModelName.value)
+    addRow('主指标', output.metrics?.metric || reportMetrics.value?.metric)
+    addRow('指标得分', output.metrics?.score ?? reportMetrics.value?.score)
+    addRow('报告摘要', output.summary)
+  }
+
+  if (rows.length) return rows.slice(0, 8)
+  return Object.entries(output)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .slice(0, 8)
+    .map(([key, value]) => ({ label: key, value: formatStageValue(value) }))
+}
+const selectStageDetails = async (stageKey) => {
+  if (selectedStageKey.value === stageKey) {
+    selectedStageKey.value = ''
+    return
+  }
+  selectedStageKey.value = stageKey
+  if (stageKey === 'operation_report' && currentTaskId.value && !currentReport.value) {
+    try {
+      await loadReport()
+    } catch {
+      // loadReport 已负责提示错误
+    }
+  }
+  if (stageKey === 'code_generation') await ensureStageCodePreview()
+}
+const ensureStageCodePreview = async () => {
+  const payload = nodeOutputs.value?.code_generation || {}
+  if (!payload || typeof payload !== 'object') {
+    stageCodePreviewText.value = ''
+    stageCodePreviewPath.value = ''
+    return
+  }
+
+  const directCode = String(extractCodeText(payload) || '').trim()
+  const codePath = String(extractCodePath(payload) || payload.generated_code || payload.code_path || '').trim()
+  stageCodePreviewPath.value = codePath
+
+  if (directCode && looksLikeCodeContent(directCode) && !looksLikeCodePath(directCode)) {
+    stageCodePreviewText.value = directCode
+    return
+  }
+
+  if (!codePath) {
+    stageCodePreviewText.value = ''
+    return
+  }
+
+  stageCodePreviewLoading.value = true
+  try {
+    const fileText = await fetchAgentCodeFile(codePath)
+    stageCodePreviewText.value = typeof fileText === 'string' ? fileText : JSON.stringify(fileText ?? '', null, 2)
+  } catch (error) {
+    stageCodePreviewText.value = ''
+    ElMessage.warning('代码文件读取失败，详情中保留原始路径信息')
+  } finally {
+    stageCodePreviewLoading.value = false
+  }
+}
+const copySelectedStageJson = async () => {
+  try {
+    await navigator.clipboard.writeText(selectedStageJson.value)
+    ElMessage.success('节点 JSON 已复制')
+  } catch (error) {
+    ElMessage.error('复制失败')
+  }
+}
 const downloadJson = (value, filename) => {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json;charset=utf-8' })
   const url = URL.createObjectURL(blob)
@@ -1449,7 +1691,9 @@ const syncTaskState = (task) => {
   currentTaskId.value = nextTaskId
   datasetId.value = task.dataset_id || datasetId.value
   lifecycleStatus.value = task.status || task.lifecycle_status || lifecycleStatus.value
-  currentStage.value = task.current_stage || task.stage || currentStage.value
+  currentStage.value = task.current_node || task.current_stage || task.stage || currentStage.value
+  const stageForDetail = stageDefinitions.find((item) => item.key === currentStage.value || item.review === currentStage.value)?.key
+  if (stageForDetail) selectedStageKey.value = stageForDetail
   if (nextTaskId && taskRunModeMap.value[nextTaskId] !== undefined) runOffline.value = taskRunModeMap.value[nextTaskId]
 }
 
@@ -1987,6 +2231,15 @@ watch(
   { deep: true }
 )
 
+watch(selectedStageKey, async (stageKey) => {
+  if (stageKey === 'code_generation') await ensureStageCodePreview()
+  else {
+    stageCodePreviewText.value = ''
+    stageCodePreviewPath.value = ''
+    stageCodePreviewLoading.value = false
+  }
+})
+
 watch(currentTaskId, (nextId, prevId) => {
   if (!nextId || nextId === prevId) return
   predictionRows.value = []
@@ -1997,6 +2250,9 @@ watch(currentTaskId, (nextId, prevId) => {
   demoFeatureColumns.value = []
   artifactText.value = ''
   artifactMode.value = 'empty'
+  stageCodePreviewText.value = ''
+  stageCodePreviewPath.value = ''
+  stageCodePreviewLoading.value = false
 })
 
 onMounted(() => {
@@ -2136,7 +2392,28 @@ onBeforeUnmount(() => {
 .panel-title { color: var(--zs-text); font-size: 16px; font-weight: 660; }
 .panel-subtitle { margin-top: 5px; color: var(--zs-muted); font-size: 13px; line-height: 1.68; }
 .panel-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.stage-item { display: grid; grid-template-columns: 38px 1fr auto; gap: 14px; padding: 15px; border: 1px solid var(--zs-border); border-radius: 16px; margin-bottom: 10px; }
+.stage-item {
+  display: grid;
+  grid-template-columns: 38px 1fr auto;
+  gap: 14px;
+  padding: 15px;
+  border: 1px solid var(--zs-border);
+  border-radius: 16px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background-color 0.16s ease, transform 0.16s ease;
+}
+.stage-item:hover {
+  border-color: #4f8fd8;
+  background: var(--zs-panel-soft);
+}
+.stage-item.selected {
+  border-color: #4f8fd8;
+  background: linear-gradient(140deg, rgba(79, 143, 216, 0.12), var(--zs-panel-soft));
+}
+.stage-item.has-output .stage-icon {
+  color: #52c37f;
+}
 .stage-title { color: var(--zs-text); font-size: 14px; font-weight: 620; }
 .stage-desc { margin-top: 5px; color: var(--zs-muted); font-size: 13px; line-height: 1.64; }
 .task-desc-card {
@@ -2197,6 +2474,210 @@ onBeforeUnmount(() => {
 }
 .stage-list {
   margin-top: 8px;
+}
+.stage-row {
+  margin-bottom: 10px;
+}
+.stage-detail-panel {
+  margin: 8px 0 14px;
+  padding: 16px;
+  border: 1px solid var(--zs-border);
+  border-radius: 18px;
+  background: var(--zs-panel-soft);
+}
+.stage-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.stage-detail-title {
+  color: var(--zs-text);
+  font-size: 15px;
+  font-weight: 680;
+}
+.stage-detail-subtitle {
+  margin-top: 5px;
+  color: var(--zs-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.stage-detail-badge {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border: 1px solid var(--zs-border);
+  border-radius: 999px;
+  color: var(--zs-muted);
+  background: var(--zs-panel);
+  font-size: 12px;
+  font-weight: 620;
+}
+.stage-detail-badge.ready {
+  border-color: rgba(82, 195, 127, 0.45);
+  color: #52c37f;
+  background: rgba(82, 195, 127, 0.1);
+}
+.stage-detail-body {
+  display: grid;
+  gap: 14px;
+}
+.stage-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+.stage-detail-card {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--zs-border);
+  border-radius: 14px;
+  background: var(--zs-panel);
+}
+.stage-detail-card span {
+  display: block;
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+.stage-detail-card strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--zs-text);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.stage-report-preview {
+  display: grid;
+  gap: 12px;
+}
+.stage-report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.stage-report-section {
+  padding: 12px;
+  border: 1px solid var(--zs-border);
+  border-radius: 14px;
+  background: var(--zs-panel);
+}
+.stage-report-section > span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--zs-muted);
+  font-size: 12px;
+  font-weight: 620;
+}
+.stage-report-section p {
+  margin: 0;
+  color: var(--zs-text);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.stage-report-section ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--zs-text);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.stage-report-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.stage-report-metrics div {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--zs-border);
+  border-radius: 12px;
+  background: var(--zs-panel-soft);
+}
+.stage-report-metrics span {
+  display: block;
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+.stage-report-metrics strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--zs-text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.stage-code-preview {
+  overflow: hidden;
+  border: 1px solid var(--zs-border);
+  border-radius: 14px;
+  background: var(--zs-panel);
+}
+.stage-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--zs-border);
+}
+.stage-code-head span {
+  color: var(--zs-muted);
+  font-size: 12px;
+  font-weight: 620;
+}
+.stage-code-head small {
+  color: var(--zs-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.stage-code-preview pre {
+  max-height: 420px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  color: var(--zs-text);
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre;
+}
+.stage-json-block {
+  overflow: hidden;
+  border: 1px solid var(--zs-border);
+  border-radius: 14px;
+  background: var(--zs-panel);
+}
+.stage-json-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--zs-border);
+  color: var(--zs-muted);
+  font-size: 12px;
+  font-weight: 620;
+}
+.stage-json-block pre {
+  max-height: 340px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  color: var(--zs-text);
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.stage-detail-empty {
+  padding: 14px;
+  border: 1px dashed var(--zs-border);
+  border-radius: 14px;
+  color: var(--zs-muted);
+  background: var(--zs-panel);
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 .artifact-toolbar {
