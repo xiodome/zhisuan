@@ -292,12 +292,21 @@ export const forkAgentWorkflow = async (workflowId) => {
   }
 }
 
-export const fetchAgentWorkflows = async () => {
+export const fetchAgentWorkflows = async (params = {}) => {
   try {
-    const response = await agentApi.get('/api/agent/workflows')
+    const response = await agentApi.get('/api/agent/workflows', { params })
     return unwrap(response)
   } catch (error) {
     handleAgentError(error, '工作流列表加载失败')
+  }
+}
+
+export const fetchAgentWorkflowDetail = async (workflowId) => {
+  try {
+    const response = await agentApi.get(`/api/agent/workflows/${workflowId}`)
+    return unwrap(response)
+  } catch (error) {
+    handleAgentError(error, '工作流详情加载失败')
   }
 }
 /* ==========================================

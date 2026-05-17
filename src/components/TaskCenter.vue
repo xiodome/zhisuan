@@ -391,6 +391,16 @@
               </button>
             </div>
 
+            <el-button
+              v-if="canReview"
+              plain
+              type="success"
+              :disabled="lifecycleStatus !== 'COMPLETED' || !currentTaskId"
+              @click="openWorkflowShareDialog"
+            >
+              分享工作流
+            </el-button>
+
             <el-dropdown trigger="click" @command="handleExportCommand">
               <el-button plain type="primary" :disabled="!currentTaskId">
                 导出选项
@@ -785,6 +795,42 @@
         <el-button type="primary" @click="confirmPredictionJsonImport">确认导入</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="workflowShareDialogVisible" title="分享工作流" width="620px" class="agent-dialog">
+      <el-form label-position="top" class="share-workflow-form">
+        <el-form-item label="标题">
+          <el-input v-model="workflowShareForm.title" maxlength="100" show-word-limit placeholder="给这个工作流起一个清晰的名称" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input
+            v-model="workflowShareForm.description"
+            type="textarea"
+            :rows="4"
+            maxlength="500"
+            show-word-limit
+            placeholder="说明适用场景、数据要求和复用方式"
+          />
+        </el-form-item>
+        <div class="share-form-grid">
+          <el-form-item label="分类">
+            <el-input v-model="workflowShareForm.category" placeholder="如：分类建模、回归预测" />
+          </el-form-item>
+          <el-form-item label="适用任务类型">
+            <el-input v-model="workflowShareForm.applicable_task_types" placeholder="如：CLASSIFICATION,REGRESSION" />
+          </el-form-item>
+        </div>
+        <el-form-item label="标签">
+          <el-input v-model="workflowShareForm.tags" placeholder="多个标签用逗号分隔，如 sklearn,快速原型,教学" />
+        </el-form-item>
+        <div class="share-workflow-note">
+          提交后会进入管理员审核队列。系统会自动附带当前任务的节点配置、训练策略和生成代码。
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button plain @click="workflowShareDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="sharingWorkflow" @click="submitWorkflowShare">提交审核</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -820,6 +866,7 @@ import {
   predictAgentTask,
   resumeAgentTask,
   runAgentTask,
+  shareAgentWorkflow,
   submitAgentReview,
   updateAgentCode,
   uploadAgentDataset
@@ -892,6 +939,15 @@ const selectedStageKey = ref('manager_parse')
 const stageCodePreviewText = ref('')
 const stageCodePreviewPath = ref('')
 const stageCodePreviewLoading = ref(false)
+const workflowShareDialogVisible = ref(false)
+const sharingWorkflow = ref(false)
+const workflowShareForm = ref({
+  title: '',
+  description: '',
+  category: '',
+  applicable_task_types: '',
+  tags: ''
+})
 
 const canReview = computed(() => ['ADMIN', 'DEVELOPER'].includes(userStore.role))
 const hitlOptions = [
@@ -2124,6 +2180,40 @@ const downloadTaskArtifacts = async () => {
   try { const response = await downloadAgentTaskArtifacts(currentTaskId.value); const blob = new Blob([response.data], { type: 'application/zip' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'artifacts.zip'; document.body.appendChild(link); link.click(); URL.revokeObjectURL(url) }
   catch (error) { ElMessage.error('下载失败') }
 }
+const openWorkflowShareDialog = () => {
+  if (lifecycleStatus.value !== 'COMPLETED') return ElMessage.warning('任务完成后才能分享工作流')
+  workflowShareForm.value = {
+    title: currentReport.value?.title || currentTask.value?.task_description?.slice(0, 36) || 'Agent 建模工作流',
+    description: currentReport.value?.summary || currentTask.value?.task_description || '',
+    category: reportTaskType.value && reportTaskType.value !== '-' ? reportTaskType.value : '',
+    applicable_task_types: reportTaskType.value && reportTaskType.value !== '-' ? reportTaskType.value : '',
+    tags: reportFeatureColumns.value.slice(0, 5).join(',')
+  }
+  workflowShareDialogVisible.value = true
+}
+const submitWorkflowShare = async () => {
+  if (!currentTaskId.value) return ElMessage.warning('请先选择任务')
+  const title = workflowShareForm.value.title.trim()
+  if (!title) return ElMessage.warning('请填写工作流标题')
+  sharingWorkflow.value = true
+  try {
+    const payload = {
+      task_id: currentTaskId.value,
+      title,
+      description: workflowShareForm.value.description.trim(),
+      category: workflowShareForm.value.category.trim(),
+      applicable_task_types: workflowShareForm.value.applicable_task_types.trim(),
+      tags: workflowShareForm.value.tags.trim()
+    }
+    await shareAgentWorkflow(payload)
+    workflowShareDialogVisible.value = false
+    ElMessage.success('工作流已提交审核')
+  } catch (error) {
+    ElMessage.error(error.message || '工作流分享失败')
+  } finally {
+    sharingWorkflow.value = false
+  }
+}
 const handleExportCommand = async (command) => {
   if (command === 'package') {
     await downloadTaskArtifacts()
@@ -3058,6 +3148,24 @@ onBeforeUnmount(() => {
   border-color: #e0a75e;
   color: #d79545;
 }
+.share-workflow-form {
+  display: grid;
+  gap: 2px;
+}
+.share-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.share-workflow-note {
+  padding: 10px 12px;
+  border: 1px dashed var(--zs-border);
+  border-radius: 12px;
+  color: var(--zs-muted);
+  background: var(--zs-panel-soft);
+  font-size: 12px;
+  line-height: 1.65;
+}
 
 .create-task-dialog :deep(.el-dialog__body) { max-height: calc(100vh - 220px); overflow: auto; }
 .create-shell { display: grid; gap: 14px; }
@@ -3151,6 +3259,9 @@ onBeforeUnmount(() => {
     align-items: flex-start;
   }
   .progress-overview {
+    grid-template-columns: 1fr;
+  }
+  .share-form-grid {
     grid-template-columns: 1fr;
   }
 }
