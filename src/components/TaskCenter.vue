@@ -1854,7 +1854,7 @@ const runPrediction = async () => {
   } catch (error) { ElMessage.error('批量预测失败') } finally { predicting.value = false }
 }
 
-// 其他弹窗功能（保持原有精简）
+// 其他弹窗功能
 const openPredictionJsonDialog = () => { predictionJsonDialogVisible.value = true }
 const confirmPredictionJsonImport = () => {
   try {
@@ -1899,17 +1899,100 @@ const handleExportCommand = async (command) => {
 }
 
 // ================= PDF & MD 导出 =================
-const downloadReportPDF = () => {
+const downloadReportPDF = async () => {
   const element = document.getElementById('report-content')
   if (!element) return ElMessage.error('找不到报告 DOM')
-  html2pdf().from(element).set({
-    margin: [10, 10, 10, 10],
-    filename: `Report_${currentTaskId.value}.pdf`,
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-  }).save()
+
+  ElMessage.info('正在处理白底黑字科研排版，请稍候...')
+
+  // 1. 暴力注入全局打印样式，跳过 Vue scoped 的限制，强杀所有深色背景
+  const printStyle = document.createElement('style')
+  printStyle.id = 'pdf-print-style'
+  printStyle.innerHTML = `
+    #report-content { background-color: #ffffff !important; color: #000000 !important; }
+    #report-content * { color: #000000 !important; border-color: #dcdfe6 !important; }
+    /* 去除卡片背景和阴影，还原纯白文档感 */
+    #report-content .report-summary-card,
+    #report-content .report-section,
+    #report-content .report-block {
+      background-color: #ffffff !important;
+      background: none !important;
+      box-shadow: none !important;
+      border: 1px solid #dcdfe6 !important;
+    }
+    /* 强制 Element 表格在截图时变为白底黑字 */
+    #report-content .el-table,
+    #report-content .el-table th,
+    #report-content .el-table tr,
+    #report-content .el-table td {
+      background-color: #ffffff !important;
+      color: #000000 !important;
+      border-bottom: 1px solid #dcdfe6 !important;
+    }
+    /* 标签底色调整为浅灰，确保黑字清晰 */
+    #report-content .report-tags span {
+      background-color: #f4f4f5 !important;
+      color: #000000 !important;
+      border: 1px solid #dcdfe6 !important;
+    }
+    
+    /* ================= 专门修复联网参考 ================= */
+    /* 强制参考卡片白底、断字处理防止撑爆 */
+    #report-content .reference-item {
+      background-color: #ffffff !important;
+      background: none !important;
+      box-shadow: none !important;
+      border: 1px solid #dcdfe6 !important;
+      word-break: break-word !important; 
+    }
+    /* 针对带超链接的 <a> 标签，强制抹除默认蓝色及下划线，变为纯黑 */
+    #report-content a.reference-item,
+    #report-content .reference-item strong,
+    #report-content .reference-item span {
+      color: #000000 !important;
+      text-decoration: none !important;
+    }
+    /* ==================================================== */
+  `
+  document.head.appendChild(printStyle)
+
+  // 2. 临时强制切换页面的主题为 Light (为了让 ECharts Canvas 内部的文字重绘为黑色)
+  const oldTheme = document.documentElement.getAttribute('data-theme')
+  const isDark = document.documentElement.classList.contains('dark')
+  document.documentElement.setAttribute('data-theme', 'light')
+  document.documentElement.classList.remove('dark')
+
+  // 3. 核心：必须等待足够长的时间(600ms)，让图表动画和浏览器重绘彻底完成
+  await new Promise(resolve => setTimeout(resolve, 600))
+
+  try {
+    // 4. 开始纯净截图
+    await html2pdf().from(element).set({
+      margin: [15, 15, 15, 15],
+      filename: `Research_Report_${currentTaskId.value}.pdf`,
+      image: { type: 'jpeg', quality: 1 },
+      html2canvas: { 
+        scale: 2, 
+        useCORS: true, 
+        backgroundColor: '#ffffff', // 再次确保底层画布是白色的
+        logging: false
+      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    }).save()
+  } catch (error) {
+    ElMessage.error('PDF 导出出错')
+  } finally {
+    // 5. 导出完成后：清理现场，神不知鬼不觉地恢复用户原本的深色模式
+    if (document.getElementById('pdf-print-style')) {
+      document.head.removeChild(printStyle)
+    }
+    if (oldTheme) document.documentElement.setAttribute('data-theme', oldTheme)
+    else document.documentElement.removeAttribute('data-theme')
+    
+    if (isDark) document.documentElement.classList.add('dark')
+  }
 }
+
 const buildReportMarkdownFallback = () => `
 # 智算模型执行报告
 **任务 ID**: ${currentTaskId.value}
