@@ -1,62 +1,38 @@
 import axios from 'axios'
 import { API_BASE_URL } from '../config/api'
 
-// 1. 创建 Axios 实例，统一使用配置文件中的后端基础地址
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 5000 // 请求超时时间设为 5 秒
+  timeout: 5000
 })
 
-// 2. 真实登录接口
 export async function loginApi(username, password) {
   try {
-    const response = await api.post('/api/auth/login', {
-      username: username,
-      password: password
-    })
+    const response = await api.post('/api/auth/login', { username, password })
     
-    // 【关键修改】：因为后端外面包了一层 {"success": true, "data": {...}}
-    // 所以这里我们需要 response.data.data 才能拿到真正的核心数据
-    const coreData = response.data.data 
+    // 兼容后端可能存在的数据包裹层
+    const coreData = response.data?.data !== undefined ? response.data.data : response.data
     
     return {
-      token: coreData.access_token,      // 拿到真实的 Token
-      role: coreData.user.role,          // 拿到真实角色：ZERO_BASIS
-      name: coreData.user.username       // 拿到真实用户名
+      token: coreData.access_token,
+      // 【修改点1】：提取 refresh_token，以备后续刷新 Token 使用
+      refreshToken: coreData.refresh_token,
+      
+      // 【修改点2】：安全兜底。优先从 user 对象拿，如果全都没拿到，默认降级为普通用户 ZERO_BASIS，而不是 ADMIN
+      role: (coreData.user?.role || coreData.role || 'ZERO_BASIS').toUpperCase(),
+      
+      name: coreData.user?.username || coreData.username || username,
+      
+      // 可以顺便把用户 ID 存下来，后续很多接口（比如调整额度）可能需要用到当前用户的 ID
+      userId: coreData.user?.id || coreData.id || null 
     }
   } catch (error) {
-    handleApiError(error, '登录失败，请检查账号密码')
+    // 可以在这里统一处理登录失败的错误提示
+    console.error("Login API Error:", error)
+    throw error
   }
 }
 
-// 3. 真实注册接口
 export async function registerApi(regData) {
-  try {
-    // 推测注册接口路径为 /api/auth/register (如有不同请找后端同学确认)
-    const response = await api.post('/api/auth/register', {
-      username: regData.username,
-      password: regData.password,
-      role: 'ZERO_BASIS' // 默认给新注册用户分配“零基础”角色
-    })
-    return response.data
-  } catch (error) {
-    handleApiError(error, '注册失败，该用户名可能已被占用或格式错误')
-  }
-}
-
-// ================= 辅助函数：专门解析后端 FastAPI 的错误格式 =================
-function handleApiError(error, defaultMsg) {
-  if (error.response && error.response.data) {
-    const errorData = error.response.data
-    // 如果是 422 字段校验错误（比如密码太短）
-    if (Array.isArray(errorData.detail)) {
-      throw new Error(errorData.detail[0].msg)
-    }
-    // 如果是普通的业务错误（比如密码错误，返回了 {"detail": "Incorrect password"}）
-    if (errorData.detail && typeof errorData.detail === 'string') {
-      throw new Error(errorData.detail)
-    }
-  }
-  // 如果服务器没响应或网断了
-  throw new Error(defaultMsg)
+  return await api.post('/api/auth/register', regData)
 }
