@@ -4,112 +4,153 @@ import { useUserStore } from '../store/user'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 5000
+  timeout: 8000
 })
 
-api.interceptors.request.use(config => {
-  const store = useUserStore()
-  if (store.token) {
-    config.headers.Authorization = `Bearer ${store.token}`
+api.interceptors.request.use((config) => {
+  try {
+    const store = useUserStore()
+    if (store.token) {
+      config.headers.Authorization = `Bearer ${store.token}`
+    }
+  } catch (error) {
+    // Ignore store read errors.
   }
   return config
 })
 
-// 1. 获取真实用户列表
+const unwrapResponse = (response) => (response.data?.data !== undefined ? response.data.data : response.data)
+
+const extractErrorMessage = (error, fallback) => {
+  const detail = error?.response?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail) && detail.length) {
+    const first = detail[0]
+    if (typeof first === 'string' && first.trim()) return first
+    if (first?.msg) return first.msg
+  }
+
+  const message = error?.response?.data?.message
+  if (typeof message === 'string' && message.trim()) return message
+  return fallback
+}
+
+const buildApiError = (error, fallback) => new Error(extractErrorMessage(error, fallback))
+
+const normalizeApplicationStatus = (value) => {
+  const numeric = Number(value)
+  if (!Number.isNaN(numeric)) {
+    if (numeric === 0) return 'pending'
+    if (numeric === 1) return 'approved'
+    if (numeric === 2) return 'rejected'
+  }
+
+  const key = String(value || '').trim().toUpperCase()
+  if (['PENDING', 'WAITING', 'TO_REVIEW'].includes(key)) return 'pending'
+  if (['APPROVED', 'PASSED', 'SUCCESS'].includes(key)) return 'approved'
+  if (['REJECTED', 'REFUSED', 'FAILED'].includes(key)) return 'rejected'
+  return 'pending'
+}
+
+const normalizeDateTime = (value) => {
+  if (!value) return '-'
+  const formatted = String(value).replace('T', ' ')
+  return formatted.length >= 19 ? formatted.slice(0, 19) : formatted
+}
+
 export async function fetchUserList(filters) {
   try {
-    const params = {
-      page: 1,
-      page_size: 100
-    }
-    
+    const params = { page: 1, page_size: 100 }
     if (filters.username) params.username = filters.username
     if (filters.role) params.role = filters.role
     if (filters.status === 'enabled') params.status = 1
     if (filters.status === 'disabled') params.status = 0
 
     const response = await api.get('/api/admin/users', { params })
-    
-    const responseData = response.data?.data !== undefined ? response.data.data : response.data
-    const rawList = responseData.list || responseData || []
-    
-    const formattedList = rawList.map(user => ({
+    const responseData = unwrapResponse(response)
+    const rawList = Array.isArray(responseData) ? responseData : responseData?.list || responseData?.items || []
+
+    const formattedList = rawList.map((user) => ({
       id: user.id,
       username: user.username,
       email: user.email || '未填写',
       role: user.role,
       status: user.status === 1 ? 'enabled' : 'disabled',
-      lastLogin: user.created_at ? user.created_at.split('T')[0] : '未知'
+      lastLogin: user.updated_at ? normalizeDateTime(user.updated_at) : normalizeDateTime(user.created_at)
     }))
 
     return {
       list: formattedList,
-      total: responseData.total || rawList.length
+      total: responseData?.total || rawList.length
     }
   } catch (error) {
-    console.error("Fetch User List Error:", error)
-    throw new Error('获取用户列表失败，请检查网络或管理员权限')
+    throw buildApiError(error, '获取用户列表失败，请检查网络或管理员权限')
   }
 }
 
-// 2. 修改真实用户角色
 export async function updateUserRole({ userId, role }) {
   try {
-    const response = await api.put(`/api/admin/users/${userId}/role`, { role: role })
-    return response.data?.data !== undefined ? response.data.data : response.data
+    const response = await api.put(`/api/admin/users/${userId}/role`, { role })
+    return unwrapResponse(response)
   } catch (error) {
-    throw new Error('角色修改失败')
+    throw buildApiError(error, '角色修改失败')
   }
 }
 
-// 3. 修改真实用户状态
 export async function updateUserStatus({ userId, status }) {
   try {
     const numericStatus = status === 'enabled' ? 1 : 0
     const response = await api.patch(`/api/admin/users/${userId}/status`, { status: numericStatus })
-    return response.data?.data !== undefined ? response.data.data : response.data
+    return unwrapResponse(response)
   } catch (error) {
-    throw new Error('状态修改失败')
+    throw buildApiError(error, '状态修改失败')
   }
 }
 
-// ================= 新增：权限申请审核相关 API =================
-
-// 4. 获取开发者角色申请列表
 export async function fetchRoleApplications() {
   try {
-    const response = await api.get('/api/admin/role-applications')
-    return response.data?.data !== undefined ? response.data.data : response.data
+    const response = await api.get('/api/admin/developer/applications', {
+      params: { page: 1, page_size: 100 }
+    })
+    const responseData = unwrapResponse(response)
+    const rawList = Array.isArray(responseData)
+      ? responseData
+      : responseData?.list || responseData?.items || responseData?.records || []
+
+    return rawList.map((item) => ({
+      id: item.id,
+      user_id: item.user_id ?? null,
+      username: item.username || item.user_name || (item.user_id ? `用户 #${item.user_id}` : '-'),
+      reason: item.reason || '-',
+      status: normalizeApplicationStatus(item.status),
+      created_at: normalizeDateTime(item.created_at),
+      review_comment: item.review_comment || ''
+    }))
   } catch (error) {
-    // 兼容后端未开发此接口的情况，返回测试模拟数据以便前端调试
-    console.warn("未连接到真实的申请列表接口，使用模拟数据展示。")
-    return [
-      { id: 101, username: 'test_user_01', reason: '科研需要，申请使用多智能体控制面板、可视化过程以及完整论文级PDF导出功能。', status: 'pending', created_at: '2026-05-17 10:00:00' },
-      { id: 102, username: 'student_li', reason: '需要使用 Operation Agent 生成代码的保存功能完成课程大作业。', status: 'pending', created_at: '2026-05-17 11:30:00' }
-    ]
+    throw buildApiError(error, '获取开发者申请记录失败')
   }
 }
 
-// 5. 审批通过
 export async function approveRoleApplication(applicationId) {
   try {
-    const response = await api.post(`/api/admin/role-applications/${applicationId}/approve`)
-    return response.data?.data !== undefined ? response.data.data : response.data
+    const response = await api.put(`/api/admin/developer/applications/${applicationId}/review`, {
+      action: 'APPROVED',
+      review_comment: null
+    })
+    return unwrapResponse(response)
   } catch (error) {
-    // 如果无真实后端，模拟成功
-    console.warn("未连接到真实审批通过接口，模拟通过。")
-    return true
+    throw buildApiError(error, '审批通过失败')
   }
 }
 
-// 6. 审批驳回
 export async function rejectRoleApplication(applicationId) {
   try {
-    const response = await api.post(`/api/admin/role-applications/${applicationId}/reject`)
-    return response.data?.data !== undefined ? response.data.data : response.data
+    const response = await api.put(`/api/admin/developer/applications/${applicationId}/review`, {
+      action: 'REJECTED',
+      review_comment: null
+    })
+    return unwrapResponse(response)
   } catch (error) {
-    // 如果无真实后端，模拟成功
-    console.warn("未连接到真实审批驳回接口，模拟驳回。")
-    return true
+    throw buildApiError(error, '驳回申请失败')
   }
 }

@@ -21,6 +21,13 @@
           <span class="nav-text">任务</span>
         </el-menu-item>
 
+        <el-menu-item index="2" title="个人中心">
+          <span class="nav-icon">
+            <el-icon><User /></el-icon>
+          </span>
+          <span class="nav-text">个人中心</span>
+        </el-menu-item>
+
         <el-menu-item index="3" v-if="userStore.role === 'ADMIN'" title="管理控制台">
           <span class="nav-icon">
             <el-icon><Monitor /></el-icon>
@@ -74,6 +81,7 @@
     <main class="app-main">
       <section class="content-surface">
         <TaskCenter v-if="activeIndex === '1'" />
+        <UserCenter v-if="activeIndex === '2'" @open-task-center="activeIndex = '1'" />
         <AdminConsole v-if="activeIndex === '3'" />
         <AdminUserManagement v-if="activeIndex === '4'" />
       </section>
@@ -86,6 +94,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useUserStore } from './store/user'
 import Login from './components/Login.vue'
 import TaskCenter from './components/TaskCenter.vue'
+import UserCenter from './components/UserCenter.vue'
 import AdminConsole from './components/AdminConsole.vue'
 import AdminUserManagement from './components/AdminUserManagement.vue'
 

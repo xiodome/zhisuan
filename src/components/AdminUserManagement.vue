@@ -373,7 +373,13 @@ const handleApproveApp = async (app) => {
     await ElMessageBox.confirm(`确认通过用户「${app.username}」的开发者权限申请吗？通过后该用户将获得完整多智能体功能。`, '审批通过', {
       type: 'warning',
       confirmButtonText: '确认通过',
-      cancelButtonText: '取消'
+      cancelButtonText: '取消',
+      customClass: 'app-review-message-box',
+      confirmButtonClass: 'app-review-confirm-btn',
+      cancelButtonClass: 'app-review-cancel-btn',
+      closeOnClickModal: false,
+      closeOnPressEscape: true,
+      distinguishCancelAndClose: true
     })
     await approveRoleApplication(app.id)
     ElMessage.success(`已同意 ${app.username} 的开发者申请`)
@@ -391,7 +397,13 @@ const handleRejectApp = async (app) => {
     await ElMessageBox.confirm(`确认驳回用户「${app.username}」的申请吗？`, '审批驳回', {
       type: 'warning',
       confirmButtonText: '确认驳回',
-      cancelButtonText: '取消'
+      cancelButtonText: '取消',
+      customClass: 'app-review-message-box',
+      confirmButtonClass: 'app-review-confirm-btn',
+      cancelButtonClass: 'app-review-cancel-btn',
+      closeOnClickModal: false,
+      closeOnPressEscape: true,
+      distinguishCancelAndClose: true
     })
     await rejectRoleApplication(app.id)
     ElMessage.success(`已驳回 ${app.username} 的申请`)
@@ -641,5 +653,42 @@ onMounted(() => {
 /* 隐藏蓝色下划线（因为我们用了块级高亮） */
 :deep(.el-tabs__active-bar) {
   display: none;
+}
+
+</style>
+
+<style>
+.app-review-message-box {
+  background: var(--zs-panel, var(--el-bg-color-overlay)) !important;
+  border: 1px solid var(--zs-border, var(--el-border-color-light)) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+}
+
+.app-review-message-box .el-message-box__header {
+  padding-bottom: 12px;
+}
+
+.app-review-message-box .el-message-box__title,
+.app-review-message-box .el-message-box__content {
+  color: var(--zs-text, var(--el-text-color-primary));
+}
+
+.app-review-message-box .el-message-box__headerbtn .el-message-box__close {
+  color: var(--zs-muted, var(--el-text-color-secondary));
+}
+
+.app-review-message-box .el-message-box__status {
+  color: var(--zs-warning, var(--el-color-warning));
+}
+
+.app-review-message-box .el-message-box__btns {
+  padding-top: 12px;
+}
+
+.app-review-message-box .app-review-cancel-btn {
+  background: var(--zs-elevated, var(--el-fill-color-light));
+  border-color: var(--zs-border, var(--el-border-color));
+  color: var(--zs-text, var(--el-text-color-primary));
 }
 </style>

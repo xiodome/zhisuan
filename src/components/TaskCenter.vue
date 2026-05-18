@@ -505,6 +505,19 @@
             <div class="el-upload__text">拖拽 CSV 到这里，或 <em>点击上传</em></div>
           </el-upload>
           <el-progress v-if="uploadingDataset || uploadProgress > 0" class="upload-progress" :percentage="uploadProgress" />
+          <div v-if="draftDatasetId" class="upload-result">
+            <div class="upload-result-meta">
+              <span class="upload-result-label">已上传文件</span>
+              <strong class="upload-result-name">{{ draftDatasetName || 'dataset.csv' }}</strong>
+            </div>
+            <div class="upload-result-actions">
+              <el-button plain size="small" :disabled="!draftPreviewRows.length" @click="openDraftPreviewDialog">
+                <el-icon><Grid /></el-icon>
+                预览数据
+              </el-button>
+            </div>
+          </div>
+          <div v-if="draftPreviewError" class="upload-preview-error">{{ draftPreviewError }}</div>
         </section>
 
         <section class="create-section">
@@ -549,6 +562,20 @@
           min-width="120"
         />
       </el-table>
+      <div v-else class="modal-empty">暂无可预览数据。</div>
+    </el-dialog>
+
+    <el-dialog v-model="draftPreviewDialogVisible" title="上传数据预览" width="860px" class="agent-dialog">
+      <el-table v-if="draftPreviewRows.length" :data="draftPreviewRows" height="360">
+        <el-table-column
+          v-for="column in draftPreviewColumns"
+          :key="column"
+          :prop="column"
+          :label="column"
+          min-width="120"
+        />
+      </el-table>
+      <div v-else class="modal-empty">{{ draftPreviewError || '暂无可预览数据。' }}</div>
     </el-dialog>
 
     <el-dialog v-model="reviewDialogVisible" :title="`人工审核确认 - ${reviewStageLabel}`" width="850px" class="agent-dialog">
@@ -765,11 +792,13 @@ const cancelling = ref(false)
 const savingCode = ref(false)
 const createDialogVisible = ref(false)
 const previewDialogVisible = ref(false)
+const draftPreviewDialogVisible = ref(false)
 const reviewDialogVisible = ref(false)
 const draftTaskDesc = ref('')
 const draftDatasetId = ref(null)
 const draftDatasetName = ref('')
 const draftPreviewRows = ref([])
+const draftPreviewError = ref('')
 const draftRunOffline = ref(true)
 const uploadingDataset = ref(false)
 const uploadProgress = ref(0)
@@ -1095,6 +1124,76 @@ const stages = computed(() => {
 const normalizeDatasetId = (result) => result?.dataset_id || result?.id || result?.dataset?.id
 const normalizeRows = (preview) => Array.isArray(preview) ? preview : Array.isArray(preview?.rows) ? preview.rows : []
 const normalizeTaskId = (task) => task?.task_id || task?.id
+const PREVIEW_ROW_LIMIT = 20
+const PREVIEW_FILE_SLICE_BYTES = 1024 * 1024
+
+const parseCsvRow = (lineText) => {
+  const row = []
+  let value = ''
+  let inQuotes = false
+
+  for (let i = 0; i < lineText.length; i += 1) {
+    const char = lineText[i]
+    const nextChar = lineText[i + 1]
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        value += '"'
+        i += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+      continue
+    }
+
+    if (char === ',' && !inQuotes) {
+      row.push(value)
+      value = ''
+      continue
+    }
+
+    value += char
+  }
+
+  row.push(value)
+  return row
+}
+
+const parseCsvPreviewFromText = (text, maxRows = PREVIEW_ROW_LIMIT) => {
+  const lines = String(text || '')
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0)
+
+  if (!lines.length) return []
+
+  const header = parseCsvRow(lines[0])
+  if (!header.length) return []
+
+  const rows = []
+  for (let lineIndex = 1; lineIndex < lines.length && rows.length < maxRows; lineIndex += 1) {
+    const values = parseCsvRow(lines[lineIndex])
+    const columnCount = Math.max(header.length, values.length)
+    const row = {}
+    for (let col = 0; col < columnCount; col += 1) {
+      const key = String(header[col] || `column_${col + 1}`).trim() || `column_${col + 1}`
+      row[key] = values[col] ?? ''
+    }
+    rows.push(row)
+  }
+
+  return rows
+}
+
+const readCsvPreviewRows = async (file) => {
+  const fileChunk = typeof file.slice === 'function' ? file.slice(0, PREVIEW_FILE_SLICE_BYTES) : file
+  const text = await (typeof fileChunk?.text === 'function' ? fileChunk.text() : Promise.resolve(''))
+  const rows = parseCsvPreviewFromText(text, PREVIEW_ROW_LIMIT)
+  if (!rows.length) throw new Error('未解析到可预览的数据行，请检查 CSV 是否包含表头与数据。')
+  return rows
+}
+
 const normalizeStringArray = (list) => Array.from(new Set((Array.isArray(list) ? list : []).map((item) => String(item || '').trim()).filter(Boolean)))
 const normalizeColumnList = (value) => {
   if (Array.isArray(value)) return normalizeStringArray(value)
@@ -1456,6 +1555,10 @@ const syncTaskState = (task) => {
 const openCreateDialog = () => {
   draftTaskDesc.value = ''
   draftDatasetId.value = null
+  draftDatasetName.value = ''
+  draftPreviewRows.value = []
+  draftPreviewError.value = ''
+  draftPreviewDialogVisible.value = false
   uploadProgress.value = 0
   selectedHitlStages.value = []
   createDialogVisible.value = true
@@ -1470,6 +1573,18 @@ const openPreviewDialog = async () => {
   } catch (error) { ElMessage.error('预览失败') }
 }
 
+const openDraftPreviewDialog = () => {
+  if (!draftDatasetId.value) {
+    ElMessage.warning('请先上传数据集')
+    return
+  }
+  if (!draftPreviewRows.value.length) {
+    ElMessage.warning(draftPreviewError.value || '暂时无法预览该文件，请重新上传后重试。')
+    return
+  }
+  draftPreviewDialogVisible.value = true
+}
+
 const beforeCsvUpload = (file) => {
   if (!file.name.toLowerCase().endsWith('.csv') && file.type !== 'text/csv') return ElMessage.error('仅支持 CSV 文件') && false
   return true
@@ -1477,9 +1592,21 @@ const beforeCsvUpload = (file) => {
 
 const handleDatasetUpload = async ({ file, onSuccess, onError }) => {
   uploadingDataset.value = true
+  uploadProgress.value = 0
+  draftPreviewDialogVisible.value = false
+  draftPreviewRows.value = []
+  draftPreviewError.value = ''
+  draftDatasetName.value = file?.name || ''
   try {
     const result = await uploadAgentDataset(file, (p) => uploadProgress.value = Number(p))
     draftDatasetId.value = normalizeDatasetId(result)
+    try {
+      draftPreviewRows.value = await readCsvPreviewRows(file)
+    } catch (previewError) {
+      draftPreviewRows.value = []
+      draftPreviewError.value = previewError?.message || '文件上传成功，但预览解析失败。'
+      ElMessage.warning('文件上传成功，但预览解析失败')
+    }
     ElMessage.success('上传成功')
     onSuccess?.(result)
   } catch (error) { ElMessage.error('上传失败'); onError?.(error) } finally { uploadingDataset.value = false }
@@ -2669,6 +2796,46 @@ onBeforeUnmount(() => {
 .upload-dropzone :deep(.el-upload-dragger) { width: 100%; }
 .upload-icon { margin-bottom: 4px; }
 .upload-progress { margin-top: 10px; }
+.upload-result {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--zs-border);
+  border-radius: 12px;
+  background: var(--zs-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.upload-result-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.upload-result-label {
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+.upload-result-name {
+  color: var(--zs-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  word-break: break-all;
+}
+.upload-result-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.upload-preview-error {
+  margin-top: 8px;
+  color: var(--el-color-warning);
+  font-size: 12px;
+  line-height: 1.62;
+}
 .modal-empty { padding: 18px 8px; color: var(--zs-muted); font-size: 13px; line-height: 1.6; }
 
 :deep(.report-table.compact .el-table__cell) {
