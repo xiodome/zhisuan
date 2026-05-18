@@ -124,6 +124,54 @@
       </el-col>
     </el-row>
 
+    <el-card shadow="hover" class="panel-card quota-card" v-loading="loadingUser">
+      <template #header>
+        <div class="card-head">
+          <span class="card-title">我的 API 额度</span>
+          <el-tag :type="quotaStatus.type" effect="light">{{ quotaStatus.label }}</el-tag>
+        </div>
+      </template>
+
+      <template v-if="hasQuotaData">
+        <div class="quota-grid">
+          <div class="quota-item">
+            <div class="quota-label">Token 额度</div>
+            <div class="quota-value">{{ formatNumber(quotaInfo.tokenQuota) }}</div>
+          </div>
+          <div class="quota-item">
+            <div class="quota-label">使用上限</div>
+            <div class="quota-value">{{ formatNumber(quotaInfo.tokenLimit) }}</div>
+          </div>
+          <div class="quota-item">
+            <div class="quota-label">预警阈值</div>
+            <div class="quota-value">{{ quotaWarningText }}</div>
+          </div>
+          <div class="quota-item">
+            <div class="quota-label">已用 Token</div>
+            <div class="quota-value">{{ formatNumber(quotaInfo.tokenUsed) }}</div>
+          </div>
+          <div class="quota-item">
+            <div class="quota-label">使用占比</div>
+            <div class="quota-value">{{ formatPercent(quotaUsagePercent) }}</div>
+          </div>
+        </div>
+
+        <div class="quota-progress">
+          <el-progress
+            :percentage="Math.round(quotaUsagePercent)"
+            :color="quotaProgressColor"
+            :stroke-width="12"
+          />
+        </div>
+      </template>
+
+      <el-empty
+        v-else
+        :image-size="64"
+        description="当前账号暂无可展示的额度信息，请联系管理员配置 API 额度。"
+      />
+    </el-card>
+
     <el-card shadow="hover" class="reserve-card">
       <template #header>
         <div class="card-head">
@@ -220,6 +268,30 @@ const applyRules = {
   remark: [{ max: 120, message: '备注不能超过 120 字', trigger: 'blur' }]
 }
 
+const clampPercent = (value) => {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return 0
+  if (numeric < 0) return 0
+  if (numeric > 100) return 100
+  return numeric
+}
+
+const getByPath = (source, path) =>
+  path.split('.').reduce((acc, key) => (acc && acc[key] !== undefined ? acc[key] : undefined), source)
+
+const readFirstNumeric = (source, paths = []) => {
+  for (const path of paths) {
+    const value = getByPath(source, path)
+    if (value === null || value === undefined || value === '') continue
+    const numeric = Number(value)
+    if (Number.isFinite(numeric)) return numeric
+  }
+  return null
+}
+
+const formatNumber = (value) => Number(value || 0).toLocaleString()
+const formatPercent = (value) => `${Math.round(Number(value || 0))}%`
+
 const roleMap = {
   ADMIN: '管理员',
   DEVELOPER: 'AI 开发者',
@@ -259,6 +331,108 @@ const accountStatus = computed(() => {
     return { label: '禁用', type: 'danger' }
   }
   return { label: '-', type: 'info' }
+})
+
+const quotaInfo = computed(() => {
+  const source = userInfo.value || {}
+  const tokenQuota = readFirstNumeric(source, [
+    'tokenQuota',
+    'token_quota',
+    'api_token_limit',
+    'apiTokenLimit',
+    'quota.tokenQuota',
+    'quota.token_limit',
+    'quota.api_token_limit'
+  ])
+  const tokenLimit = readFirstNumeric(source, [
+    'tokenLimit',
+    'usageLimit',
+    'limit',
+    'quota.tokenLimit',
+    'quota.usageLimit',
+    'quota.limit',
+    'quota.token_limit'
+  ])
+  const tokenUsed = readFirstNumeric(source, [
+    'tokenUsed',
+    'used',
+    'api_token_used',
+    'apiTokenUsed',
+    'quota.tokenUsed',
+    'quota.used',
+    'quota.api_token_used'
+  ])
+  const warningPercent = readFirstNumeric(source, [
+    'warningThreshold',
+    'warning_threshold_percent',
+    'warningPercent',
+    'quota.warningThreshold',
+    'quota.warning_percent'
+  ])
+  const warningAbsolute = readFirstNumeric(source, [
+    'api_token_warning_threshold',
+    'token_warning_threshold',
+    'quota.api_token_warning_threshold',
+    'quota.token_warning_threshold'
+  ])
+
+  const normalizedQuota = Number(tokenQuota || 0)
+  const normalizedLimit = Number(tokenLimit || tokenQuota || 0)
+  const normalizedUsed = Number(tokenUsed || 0)
+
+  let normalizedWarning = null
+  if (warningPercent !== null) {
+    normalizedWarning = clampPercent(warningPercent)
+  } else if (warningAbsolute !== null && normalizedQuota > 0) {
+    normalizedWarning = clampPercent((warningAbsolute / normalizedQuota) * 100)
+  }
+
+  return {
+    tokenQuota: normalizedQuota,
+    tokenLimit: normalizedLimit,
+    tokenUsed: normalizedUsed,
+    warningThreshold: normalizedWarning
+  }
+})
+
+const hasQuotaData = computed(() => {
+  const { tokenQuota, tokenLimit, tokenUsed, warningThreshold } = quotaInfo.value
+  return tokenQuota > 0 || tokenLimit > 0 || tokenUsed > 0 || warningThreshold !== null
+})
+
+const quotaUsagePercent = computed(() => {
+  const quotaBase = Number(quotaInfo.value.tokenQuota || 0)
+  if (quotaBase <= 0) return 0
+  return clampPercent((Number(quotaInfo.value.tokenUsed || 0) / quotaBase) * 100)
+})
+
+const quotaWarningText = computed(() =>
+  quotaInfo.value.warningThreshold === null ? '-' : formatPercent(quotaInfo.value.warningThreshold)
+)
+
+const isQuotaInsufficient = computed(() => {
+  const used = Number(quotaInfo.value.tokenUsed || 0)
+  const quota = Number(quotaInfo.value.tokenQuota || 0)
+  const limit = Number(quotaInfo.value.tokenLimit || 0)
+  return (quota > 0 && used >= quota) || (limit > 0 && used >= limit)
+})
+
+const isQuotaWarning = computed(() => {
+  if (quotaInfo.value.warningThreshold === null) return false
+  return quotaUsagePercent.value >= Number(quotaInfo.value.warningThreshold || 0)
+})
+
+const quotaStatus = computed(() => {
+  if (!hasQuotaData.value) return { label: '暂无额度数据', type: 'info' }
+  if (isQuotaInsufficient.value) return { label: '额度不足', type: 'danger' }
+  if (isQuotaWarning.value) return { label: '预警', type: 'warning' }
+  return { label: '正常', type: 'success' }
+})
+
+const quotaProgressColor = computed(() => {
+  if (isQuotaInsufficient.value) return '#F56C6C'
+  if (isQuotaWarning.value) return '#E6A23C'
+  return '#67C23A'
 })
 
 const applicationStatus = computed(() => applicationInfo.value?.status || 'none')
@@ -545,6 +719,41 @@ onMounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.quota-card {
+  margin-bottom: 16px;
+  min-height: auto;
+}
+
+.quota-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+
+.quota-item {
+  border: 1px solid var(--zs-border);
+  border-radius: 12px;
+  background: var(--zs-panel-soft);
+  padding: 12px 14px;
+}
+
+.quota-label {
+  color: var(--zs-muted);
+  font-size: 13px;
+}
+
+.quota-value {
+  margin-top: 7px;
+  color: var(--zs-text);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.quota-progress {
+  margin-top: 14px;
 }
 
 .reserve-card {
