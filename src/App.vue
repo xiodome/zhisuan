@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <Login v-if="!userStore.token" />
 
   <div v-else class="app-shell">
@@ -13,31 +13,38 @@
         </div>
       </div>
 
-      <el-menu :default-active="activeIndex" class="app-menu" @select="(idx) => (activeIndex = idx)">
-        <el-menu-item index="1" title="任务中心">
+      <el-menu :default-active="activeIndex" class="app-menu" @select="handleMenuSelect">
+        <el-menu-item index="/task-center" title="任务中心">
           <span class="nav-icon">
             <el-icon><EditPen /></el-icon>
           </span>
           <span class="nav-text">任务</span>
         </el-menu-item>
 
-        <el-menu-item index="2" title="个人中心">
+        <el-menu-item index="/user-center" title="个人中心">
           <span class="nav-icon">
             <el-icon><User /></el-icon>
           </span>
           <span class="nav-text">个人中心</span>
         </el-menu-item>
 
-        <el-menu-item index="3" v-if="userStore.role === 'ADMIN'" title="管理控制台">
+        <el-menu-item index="/community" title="社区">
+          <span class="nav-icon">
+            <el-icon><Grid /></el-icon>
+          </span>
+          <span class="nav-text">社区</span>
+        </el-menu-item>
+
+        <el-menu-item index="/admin/console" v-if="userStore.role === 'ADMIN'" title="运营控制台">
           <span class="nav-icon">
             <el-icon><Monitor /></el-icon>
           </span>
           <span class="nav-text">运营</span>
         </el-menu-item>
 
-        <el-menu-item index="4" v-if="userStore.role === 'ADMIN'" title="用户管理">
+        <el-menu-item index="/admin/users" v-if="userStore.role === 'ADMIN'" title="用户管理">
           <span class="nav-icon">
-            <el-icon><User /></el-icon>
+            <el-icon><UserFilled /></el-icon>
           </span>
           <span class="nav-text">用户</span>
         </el-menu-item>
@@ -53,7 +60,7 @@
           <div class="theme-panel">
             <div class="theme-panel-title">主题模式</div>
             <el-segmented v-model="themeMode" :options="themeOptions" block />
-            <div class="theme-panel-title" v-if="themeMode === 'dark'">暗色暗度</div>
+            <div class="theme-panel-title" v-if="themeMode === 'dark'">暗色强度</div>
             <el-slider v-if="themeMode === 'dark'" v-model="darkTone" :min="0" :max="100" :step="1" show-input />
           </div>
         </el-popover>
@@ -61,15 +68,15 @@
 
       <div class="sidebar-section">
         <el-tooltip placement="right" :content="`${userStore.name} · ${roleLabel}`">
-        <div class="identity-card">
-          <div class="user-avatar">
-            <el-icon><UserFilled /></el-icon>
+          <div class="identity-card">
+            <div class="user-avatar">
+              <el-icon><UserFilled /></el-icon>
+            </div>
+            <div class="identity-copy">
+              <div class="identity-name">{{ userStore.name }}</div>
+              <div class="identity-role">{{ roleLabel }}</div>
+            </div>
           </div>
-          <div class="identity-copy">
-            <div class="identity-name">{{ userStore.name }}</div>
-            <div class="identity-role">{{ roleLabel }}</div>
-          </div>
-        </div>
         </el-tooltip>
       </div>
 
@@ -80,10 +87,9 @@
 
     <main class="app-main">
       <section class="content-surface">
-        <TaskCenter v-if="activeIndex === '1'" />
-        <UserCenter v-if="activeIndex === '2'" @open-task-center="activeIndex = '1'" />
-        <AdminConsole v-if="activeIndex === '3'" />
-        <AdminUserManagement v-if="activeIndex === '4'" />
+        <router-view v-slot="{ Component }">
+          <component :is="Component" @open-task-center="openTaskCenter" />
+        </router-view>
       </section>
     </main>
   </div>
@@ -91,15 +97,14 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from './store/user'
 import Login from './components/Login.vue'
-import TaskCenter from './components/TaskCenter.vue'
-import UserCenter from './components/UserCenter.vue'
-import AdminConsole from './components/AdminConsole.vue'
-import AdminUserManagement from './components/AdminUserManagement.vue'
 
 const userStore = useUserStore()
-const activeIndex = ref('1')
+const router = useRouter()
+const route = useRoute()
+
 const themeOptions = [
   { label: '暗色', value: 'dark' },
   { label: '明亮', value: 'light' }
@@ -114,6 +119,27 @@ const roleMap = {
 }
 
 const roleLabel = computed(() => roleMap[userStore.role] || userStore.role || '用户')
+
+const resolveMenuIndex = (path) => {
+  if (path.startsWith('/admin/console')) return '/admin/console'
+  if (path.startsWith('/admin/users')) return '/admin/users'
+  if (path.startsWith('/community')) return '/community'
+  if (path.startsWith('/user-center')) return '/user-center'
+  return '/task-center'
+}
+
+const activeIndex = computed(() => resolveMenuIndex(route.path || '/task-center'))
+
+const handleMenuSelect = (target) => {
+  if (!target || target === route.path) return
+  router.push(target)
+}
+
+const openTaskCenter = () => {
+  if (route.path !== '/task-center') {
+    router.push('/task-center')
+  }
+}
 
 const clamp = (value, min = 0, max = 100) => Math.min(max, Math.max(min, Number(value)))
 const hexToRgb = (hex) => {
@@ -177,8 +203,8 @@ const applyTheme = () => {
 watch(
   () => userStore.role,
   (newRole) => {
-    if (newRole !== 'ADMIN' && ['3', '4'].includes(activeIndex.value)) {
-      activeIndex.value = '1'
+    if (newRole !== 'ADMIN' && route.path.startsWith('/admin/')) {
+      router.replace('/task-center')
     }
   },
   { immediate: true }

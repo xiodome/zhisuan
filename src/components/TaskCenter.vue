@@ -92,6 +92,19 @@
                 <el-icon><CircleCloseFilled /></el-icon>
                 取消
               </el-button>
+              <el-tooltip
+                v-if="canShareWorkflowRole"
+                :content="shareWorkflowDisabledReason"
+                :disabled="canShareCurrentTask"
+                placement="top"
+              >
+                <span>
+                  <el-button type="success" plain :disabled="!canShareCurrentTask" @click="openShareWorkflowDialog">
+                    <el-icon><Share /></el-icon>
+                    分享工作流
+                  </el-button>
+                </span>
+              </el-tooltip>
             </div>
           </div>
         </section>
@@ -721,6 +734,36 @@
         <el-button type="primary" @click="confirmPredictionJsonImport">确认导入</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="shareWorkflowDialogVisible" title="分享工作流" width="640px" class="agent-dialog" destroy-on-close>
+      <el-form label-width="120px">
+        <el-form-item label="任务 ID">
+          <el-input :model-value="currentTaskId" disabled />
+        </el-form-item>
+        <el-form-item label="任务名称">
+          <el-input :model-value="currentTask?.task_description || currentTaskId || '-'" disabled />
+        </el-form-item>
+        <el-form-item label="任务类型">
+          <el-input :model-value="currentTask?.task_type || '-'" disabled />
+        </el-form-item>
+        <el-form-item label="工作流标题" required>
+          <el-input v-model="shareWorkflowForm.title" maxlength="100" show-word-limit />
+        </el-form-item>
+        <el-form-item label="工作流说明">
+          <el-input v-model="shareWorkflowForm.description" type="textarea" :rows="3" />
+        </el-form-item>
+        <el-form-item label="分类">
+          <el-input v-model="shareWorkflowForm.category" />
+        </el-form-item>
+        <el-form-item label="标签">
+          <el-input v-model="shareWorkflowForm.tags" placeholder="多个标签用逗号分隔" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button plain @click="shareWorkflowDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="shareWorkflowSubmitting" @click="submitWorkflowShare">提交分享</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -756,6 +799,7 @@ import {
   predictAgentTask,
   resumeAgentTask,
   runAgentTask,
+  shareAgentWorkflow,
   submitAgentReview,
   updateAgentCode,
   uploadAgentDataset
@@ -779,6 +823,14 @@ const predictionRowHeight = 50
 const predictionTableHeaderHeight = 48
 const predictionJsonDialogVisible = ref(false)
 const predictionJsonText = ref('')
+const shareWorkflowDialogVisible = ref(false)
+const shareWorkflowSubmitting = ref(false)
+const shareWorkflowForm = ref({
+  title: '',
+  description: '',
+  category: '',
+  tags: ''
+})
 const currentReport = ref(null)
 const runOffline = ref(true)
 const taskRunModeMap = ref({})
@@ -855,6 +907,14 @@ const statusText = computed(() => {
 const previewColumns = computed(() => previewRows.value[0] ? Object.keys(previewRows.value[0]) : [])
 const draftPreviewColumns = computed(() => draftPreviewRows.value[0] ? Object.keys(draftPreviewRows.value[0]) : [])
 const canRunTask = computed(() => ['CREATED', 'READY_TO_RESUME'].includes(lifecycleStatus.value))
+const canShareWorkflowRole = computed(() => ['ADMIN', 'DEVELOPER'].includes(String(userStore.role || '').toUpperCase()))
+const canShareCurrentTask = computed(() => canShareWorkflowRole.value && lifecycleStatus.value === 'COMPLETED' && !!currentTaskId.value)
+const shareWorkflowDisabledReason = computed(() => {
+  if (!canShareWorkflowRole.value) return '仅管理员和 AI 开发者可分享工作流'
+  if (!currentTaskId.value) return '请先选择任务'
+  if (lifecycleStatus.value !== 'COMPLETED') return '仅 COMPLETED 状态任务可分享工作流'
+  return ''
+})
 const runButtonText = computed(() => (lifecycleStatus.value === 'READY_TO_RESUME' ? '继续运行' : '运行'))
 const formattedReview = computed(() => JSON.stringify(pendingReview.value?.payload || pendingReview.value, null, 2))
 const normalizeReviewStage = (stage) => {
@@ -1654,6 +1714,70 @@ const cancelSelectedTask = async () => {
   } catch (error) { ElMessage.error('取消失败') } finally { cancelling.value = false }
 }
 
+const parseShareTags = (value) => {
+  const raw = String(value || '').trim()
+  if (!raw) return null
+  return raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .join(',')
+}
+
+const buildDefaultShareTitle = () => {
+  const taskName = String(currentTask.value?.task_description || '').trim()
+  if (taskName) return `${taskName} 工作流`
+  return `任务 ${currentTaskId.value} 工作流`
+}
+
+const openShareWorkflowDialog = () => {
+  if (!canShareCurrentTask.value) return
+  shareWorkflowForm.value = {
+    title: buildDefaultShareTitle(),
+    description: '',
+    category: '',
+    tags: ''
+  }
+  shareWorkflowDialogVisible.value = true
+}
+
+const submitWorkflowShare = async () => {
+  if (!canShareCurrentTask.value) {
+    ElMessage.warning(shareWorkflowDisabledReason.value || '当前任务不可分享')
+    return
+  }
+
+  const title = String(shareWorkflowForm.value.title || '').trim()
+  if (!title) {
+    ElMessage.warning('请先填写工作流标题')
+    return
+  }
+
+  shareWorkflowSubmitting.value = true
+  try {
+    await shareAgentWorkflow({
+      task_id: String(currentTaskId.value || '').trim(),
+      title,
+      description: String(shareWorkflowForm.value.description || '').trim() || null,
+      category: String(shareWorkflowForm.value.category || '').trim() || null,
+      applicable_task_types: String(currentTask.value?.task_type || '').trim() || null,
+      tags: parseShareTags(shareWorkflowForm.value.tags)
+    })
+    ElMessage.success('工作流分享成功，已提交审核')
+    shareWorkflowDialogVisible.value = false
+
+    const selectedTaskId = currentTaskId.value
+    await loadTasks(false, true)
+    if (selectedTaskId) {
+      await selectTask(selectedTaskId)
+    }
+  } catch (error) {
+    ElMessage.error(error.message || '工作流分享失败')
+  } finally {
+    shareWorkflowSubmitting.value = false
+  }
+}
+
 const resetVisibleTaskItems = () => {
   taskListVisibleCount.value = Math.min(taskListPageSize, taskList.value.length)
 }
@@ -2207,6 +2331,8 @@ watch(currentTaskId, (nextId, prevId) => {
   demoFeatureColumns.value = []
   artifactText.value = ''
   artifactMode.value = 'empty'
+  shareWorkflowDialogVisible.value = false
+  shareWorkflowSubmitting.value = false
 })
 
 onMounted(() => {
