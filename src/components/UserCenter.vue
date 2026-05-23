@@ -7,7 +7,7 @@
       <div class="head-actions">
         <el-button plain :loading="loadingUser || loadingApplication" @click="refreshAll">
           <el-icon><Refresh /></el-icon>
-          查看申请状态
+          刷新数据
         </el-button>
       </div>
     </div>
@@ -111,18 +111,65 @@
             </template>
 
             <div v-else class="state-box success">
-              <h4>你已是 AI 开发者</h4>
-              <p>当前角色已具备开发者能力，无需重复申请。</p>
+              <h4>权限已开通</h4>
+              <p>当前角色已具备开发者/管理能力，无需重复申请。</p>
               <div class="state-actions">
-                <el-button type="primary" @click="openDeveloperWorkbench">进入开发者工作台</el-button>
-                <el-button plain disabled>发布模型（规划中）</el-button>
-                <el-button plain disabled>发布数据集（规划中）</el-button>
+                <el-button type="primary" @click="openDeveloperWorkbench">进入任务中心</el-button>
               </div>
             </div>
           </div>
         </el-card>
       </el-col>
     </el-row>
+
+    <el-card shadow="hover" class="panel-card workflow-card" v-loading="loadingWorkflows">
+      <template #header>
+        <div class="card-head">
+          <span class="card-title">全平台工作流统管中心 (管理员模式)</span>
+          <el-button type="primary" size="small" @click="openDeveloperWorkbench">
+            <el-icon><Plus /></el-icon> 自建工作流
+          </el-button>
+        </div>
+      </template>
+
+      <el-table :data="myWorkflows" style="width: 100%" v-if="myWorkflows.length">
+        <el-table-column prop="id" label="ID" width="80" />
+        <el-table-column prop="title" label="标题" min-width="150" show-overflow-tooltip />
+        <el-table-column label="公开状态" width="100">
+          <template #default="{ row }">
+             <el-tag size="small" :type="row.is_public ? 'success' : 'info'">{{ row.is_public ? '公开' : '私有' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="审核状态" width="120">
+          <template #default="{ row }">
+             <el-tag size="small" :type="row.audit_status === 'APPROVED' ? 'success' : 'warning'">{{ row.audit_status || 'PENDING' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="Fork来源" width="120">
+          <template #default="{ row }">
+             {{ row.source_workflow_id || row.fork_from_workflow_id || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="管理操作" width="260" fixed="right">
+          <template #default="{ row }">
+            <el-button 
+              v-if="row.audit_status !== 'APPROVED'" 
+              link 
+              type="success" 
+              @click="handleAuditApprove(row)"
+            >
+              通过
+            </el-button>
+            <el-button link type="primary" @click="editWorkflowConfig(row)">编辑</el-button>
+            <el-button link type="primary" @click="toggleWorkflowPublic(row)">
+              {{ row.is_public ? '设为私有' : '设为公开' }}
+            </el-button>
+            <el-button link type="danger" @click="handleTakeDown(row)">下架</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-else description="暂无工作流数据，可前往任务中心创建" />
+    </el-card>
 
     <el-card shadow="hover" class="panel-card quota-card" v-loading="loadingUser">
       <template #header>
@@ -168,25 +215,8 @@
       <el-empty
         v-else
         :image-size="64"
-        description="当前账号暂无可展示的额度信息，请联系管理员配置 API 额度。"
+        description="当前账号暂无可展示的额度信息，请联系系统配置 API 额度。"
       />
-    </el-card>
-
-    <el-card shadow="hover" class="reserve-card">
-      <template #header>
-        <div class="card-head">
-          <span class="card-title">社区能力预留区</span>
-          <el-tag type="info" effect="plain">后续扩展</el-tag>
-        </div>
-      </template>
-
-      <div class="reserve-grid">
-        <div v-for="item in reservedModules" :key="item.key" class="reserve-item">
-          <div class="reserve-name">{{ item.name }}</div>
-          <div class="reserve-desc">{{ item.desc }}</div>
-          <el-tag size="small" type="info" effect="plain">暂未开放</el-tag>
-        </div>
-      </div>
     </el-card>
 
     <el-dialog
@@ -196,7 +226,6 @@
       width="680px"
       destroy-on-close
     >
-
       <el-form ref="applyFormRef" :model="applyForm" :rules="applyRules" label-position="top">
         <el-form-item label="申请理由" prop="reason">
           <el-input
@@ -208,7 +237,6 @@
             placeholder="请说明你申请成为 AI 开发者的原因"
           />
         </el-form-item>
-
         <el-form-item label="备注" prop="remark">
           <el-input
             v-model="applyForm.remark"
@@ -220,12 +248,28 @@
           />
         </el-form-item>
       </el-form>
-
       <div class="reason-counter">提交内容长度：{{ submitReasonLength }}/500</div>
-
       <template #footer>
         <el-button @click="applyDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="submitApplication">提交申请</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="editWorkflowVisible" title="修改工作流配置信息" width="600px">
+      <el-form label-width="100px">
+        <el-form-item label="标题">
+          <el-input v-model="editWorkflowForm.title" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="editWorkflowForm.description" type="textarea" :rows="3" />
+        </el-form-item>
+        <el-form-item label="分类">
+          <el-input v-model="editWorkflowForm.category" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editWorkflowVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingWorkflow" @click="saveWorkflowEdit">保存修改</el-button>
       </template>
     </el-dialog>
   </div>
@@ -233,13 +277,15 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../store/user'
 import {
   fetchCurrentUserInfo,
   fetchMyDeveloperApplication,
   submitDeveloperApplication
 } from '../api/developer'
+// 核心：额外引入后端配合支持的 auditWorkflow 接口
+import { fetchAdminWorkflows, updateWorkflowAdmin, takeDownWorkflow, auditWorkflow } from '../api/workflow'
 
 const emit = defineEmits(['open-task-center'])
 const userStore = useUserStore()
@@ -255,10 +301,14 @@ const applicationApiMissing = ref(false)
 const applyDialogVisible = ref(false)
 const applyFormRef = ref(null)
 const submitting = ref(false)
-const applyForm = reactive({
-  reason: '',
-  remark: ''
-})
+const applyForm = reactive({ reason: '', remark: '' })
+
+// 工作流相关状态
+const myWorkflows = ref([])
+const loadingWorkflows = ref(false)
+const editWorkflowVisible = ref(false)
+const savingWorkflow = ref(false)
+const editWorkflowForm = ref({ id: '', title: '', description: '', category: '', is_public: 0 })
 
 const applyRules = {
   reason: [
@@ -268,9 +318,10 @@ const applyRules = {
   remark: [{ max: 120, message: '备注不能超过 120 字', trigger: 'blur' }]
 }
 
+// 辅助函数
 const clampPercent = (value) => {
   const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return 0
+  if (!Number.isNaN(numeric)) return 0
   if (numeric < 0) return 0
   if (numeric > 100) return 100
   return numeric
@@ -292,30 +343,9 @@ const readFirstNumeric = (source, paths = []) => {
 const formatNumber = (value) => Number(value || 0).toLocaleString()
 const formatPercent = (value) => `${Math.round(Number(value || 0))}%`
 
-const roleMap = {
-  ADMIN: '管理员',
-  DEVELOPER: 'AI 开发者',
-  ZERO_BASIS: '零基础用户'
-}
-
-const statusLabelMap = {
-  none: '未申请',
-  pending: '待审核',
-  approved: '申请记录: 已通过',
-  rejected: '申请记录: 已驳回'
-}
-
-const statusTagMap = {
-  none: 'info',
-  pending: 'warning',
-  approved: 'success',
-  rejected: 'danger'
-}
-
-const reservedModules = [
-  { key: 'models', name: '我的模型', desc: '管理模型发布与审核状态。' },
-  { key: 'datasets', name: '我的数据集', desc: '管理数据集资产与共享权限。' }
-]
+const roleMap = { ADMIN: '管理员', DEVELOPER: 'AI 开发者', ZERO_BASIS: '零基础用户' }
+const statusLabelMap = { none: '未申请', pending: '待审核', approved: '已通过', rejected: '已驳回' }
+const statusTagMap = { none: 'info', pending: 'warning', approved: 'success', rejected: 'danger' }
 
 const currentRole = computed(() => String(userInfo.value?.role || userStore.role || '').toUpperCase())
 const roleLabel = computed(() => roleMap[currentRole.value] || currentRole.value || '用户')
@@ -324,74 +354,24 @@ const isZeroBasisRole = computed(() => currentRole.value === 'ZERO_BASIS')
 
 const accountStatus = computed(() => {
   const rawStatus = userInfo.value?.status
-  if (rawStatus === 1 || rawStatus === '1' || rawStatus === 'enabled') {
-    return { label: '启用', type: 'success' }
-  }
-  if (rawStatus === 0 || rawStatus === '0' || rawStatus === 'disabled') {
-    return { label: '禁用', type: 'danger' }
-  }
+  if (rawStatus === 1 || rawStatus === '1' || rawStatus === 'enabled') return { label: '启用', type: 'success' }
+  if (rawStatus === 0 || rawStatus === '0' || rawStatus === 'disabled') return { label: '禁用', type: 'danger' }
   return { label: '-', type: 'info' }
 })
 
+// Quota 逻辑
 const quotaInfo = computed(() => {
   const source = userInfo.value || {}
-  const tokenQuota = readFirstNumeric(source, [
-    'tokenQuota',
-    'token_quota',
-    'api_token_limit',
-    'apiTokenLimit',
-    'quota.tokenQuota',
-    'quota.token_limit',
-    'quota.api_token_limit'
-  ])
-  const tokenLimit = readFirstNumeric(source, [
-    'tokenLimit',
-    'usageLimit',
-    'limit',
-    'quota.tokenLimit',
-    'quota.usageLimit',
-    'quota.limit',
-    'quota.token_limit'
-  ])
-  const tokenUsed = readFirstNumeric(source, [
-    'tokenUsed',
-    'used',
-    'api_token_used',
-    'apiTokenUsed',
-    'quota.tokenUsed',
-    'quota.used',
-    'quota.api_token_used'
-  ])
-  const warningPercent = readFirstNumeric(source, [
-    'warningThreshold',
-    'warning_threshold_percent',
-    'warningPercent',
-    'quota.warningThreshold',
-    'quota.warning_percent'
-  ])
-  const warningAbsolute = readFirstNumeric(source, [
-    'api_token_warning_threshold',
-    'token_warning_threshold',
-    'quota.api_token_warning_threshold',
-    'quota.token_warning_threshold'
-  ])
-
-  const normalizedQuota = Number(tokenQuota || 0)
-  const normalizedLimit = Number(tokenLimit || tokenQuota || 0)
-  const normalizedUsed = Number(tokenUsed || 0)
-
-  let normalizedWarning = null
-  if (warningPercent !== null) {
-    normalizedWarning = clampPercent(warningPercent)
-  } else if (warningAbsolute !== null && normalizedQuota > 0) {
-    normalizedWarning = clampPercent((warningAbsolute / normalizedQuota) * 100)
-  }
+  const tokenQuota = readFirstNumeric(source, ['tokenQuota', 'quota.tokenQuota'])
+  const tokenLimit = readFirstNumeric(source, ['tokenLimit', 'quota.tokenLimit'])
+  const tokenUsed = readFirstNumeric(source, ['tokenUsed', 'quota.tokenUsed'])
+  const warningPercent = readFirstNumeric(source, ['warningThreshold', 'quota.warningThreshold'])
 
   return {
-    tokenQuota: normalizedQuota,
-    tokenLimit: normalizedLimit,
-    tokenUsed: normalizedUsed,
-    warningThreshold: normalizedWarning
+    tokenQuota: Number(tokenQuota || 0),
+    tokenLimit: Number(tokenLimit || tokenQuota || 0),
+    tokenUsed: Number(tokenUsed || 0),
+    warningThreshold: warningPercent !== null ? clampPercent(warningPercent) : null
   }
 })
 
@@ -406,21 +386,12 @@ const quotaUsagePercent = computed(() => {
   return clampPercent((Number(quotaInfo.value.tokenUsed || 0) / quotaBase) * 100)
 })
 
-const quotaWarningText = computed(() =>
-  quotaInfo.value.warningThreshold === null ? '-' : formatPercent(quotaInfo.value.warningThreshold)
-)
-
+const quotaWarningText = computed(() => quotaInfo.value.warningThreshold === null ? '-' : formatPercent(quotaInfo.value.warningThreshold))
 const isQuotaInsufficient = computed(() => {
-  const used = Number(quotaInfo.value.tokenUsed || 0)
-  const quota = Number(quotaInfo.value.tokenQuota || 0)
-  const limit = Number(quotaInfo.value.tokenLimit || 0)
-  return (quota > 0 && used >= quota) || (limit > 0 && used >= limit)
+  const used = Number(quotaInfo.value.tokenUsed || 0), quota = Number(quotaInfo.value.tokenQuota || 0)
+  return quota > 0 && used >= quota
 })
-
-const isQuotaWarning = computed(() => {
-  if (quotaInfo.value.warningThreshold === null) return false
-  return quotaUsagePercent.value >= Number(quotaInfo.value.warningThreshold || 0)
-})
+const isQuotaWarning = computed(() => quotaInfo.value.warningThreshold !== null && quotaUsagePercent.value >= Number(quotaInfo.value.warningThreshold || 0))
 
 const quotaStatus = computed(() => {
   if (!hasQuotaData.value) return { label: '暂无额度数据', type: 'info' }
@@ -435,53 +406,25 @@ const quotaProgressColor = computed(() => {
   return '#67C23A'
 })
 
+// 申请逻辑
 const applicationStatus = computed(() => applicationInfo.value?.status || 'none')
-
-const canSubmitApplication = computed(() => {
-  if (!isZeroBasisRole.value) return false
-  if (applicationApiMissing.value) return false
-  return applicationStatus.value !== 'pending'
-})
-
+const canSubmitApplication = computed(() => isZeroBasisRole.value && !applicationApiMissing.value && applicationStatus.value !== 'pending')
 const applyCardTag = computed(() => {
-  if (!isZeroBasisRole.value) {
-    return { label: '无需申请', type: 'success' }
-  }
-  return {
-    label: statusLabelMap[applicationStatus.value] || '未申请',
-    type: statusTagMap[applicationStatus.value] || 'info'
-  }
+  if (!isZeroBasisRole.value) return { label: '无需申请', type: 'success' }
+  return { label: statusLabelMap[applicationStatus.value] || '未申请', type: statusTagMap[applicationStatus.value] || 'info' }
 })
-
-const submitReasonText = computed(() => {
-  const reason = String(applyForm.reason || '').trim()
-  const remark = String(applyForm.remark || '').trim()
-  if (!remark) return reason
-  return `${reason}\n备注：${remark}`
-})
-
+const submitReasonText = computed(() => `${String(applyForm.reason || '').trim()}${applyForm.remark ? `\n备注：${applyForm.remark}` : ''}`)
 const submitReasonLength = computed(() => submitReasonText.value.length)
 
-const resolveRoleTag = (role) => {
-  if (role === 'ADMIN') return 'danger'
-  if (role === 'DEVELOPER') return 'success'
-  if (role === 'ZERO_BASIS') return 'info'
-  return 'info'
-}
+const resolveRoleTag = (role) => role === 'ADMIN' ? 'danger' : role === 'DEVELOPER' ? 'success' : 'info'
 
 const normalizeApplicationStatus = (value) => {
-  const numericValue = Number(value)
-  if (!Number.isNaN(numericValue)) {
-    if (numericValue === 0) return 'pending'
-    if (numericValue === 1) return 'approved'
-    if (numericValue === 2) return 'rejected'
-  }
-
+  const num = Number(value)
+  if (num === 0) return 'pending'
+  if (num === 1) return 'approved'
+  if (num === 2) return 'rejected'
   const key = String(value || '').trim().toUpperCase()
-  if (['PENDING', 'WAITING', 'TO_REVIEW'].includes(key)) return 'pending'
-  if (['APPROVED', 'PASSED', 'SUCCESS'].includes(key)) return 'approved'
-  if (['REJECTED', 'REFUSED', 'FAILED'].includes(key)) return 'rejected'
-  return 'none'
+  return ['PENDING', 'WAITING'].includes(key) ? 'pending' : ['APPROVED', 'SUCCESS'].includes(key) ? 'approved' : ['REJECTED', 'FAILED'].includes(key) ? 'rejected' : 'none'
 }
 
 const normalizeApplicationRecord = (record) => {
@@ -491,8 +434,7 @@ const normalizeApplicationRecord = (record) => {
     reason: record.reason || '',
     status: normalizeApplicationStatus(record.status),
     reviewComment: record.review_comment || record.reviewComment || '',
-    createdAt: record.created_at || record.createdAt || '',
-    updatedAt: record.updated_at || record.updatedAt || ''
+    createdAt: record.created_at || record.createdAt || ''
   }
 }
 
@@ -508,29 +450,33 @@ const resetApplyForm = () => {
   applyFormRef.value?.clearValidate?.()
 }
 
+// 加载逻辑
 const loadUser = async () => {
   loadingUser.value = true
-  try {
-    userInfo.value = await fetchCurrentUserInfo()
-  } finally {
-    loadingUser.value = false
-  }
+  try { userInfo.value = await fetchCurrentUserInfo() } finally { loadingUser.value = false }
 }
 
 const loadApplication = async () => {
-  if (!isZeroBasisRole.value) {
-    applicationApiMissing.value = false
-    applicationInfo.value = null
-    return
-  }
-
+  if (!isZeroBasisRole.value) { applicationApiMissing.value = false; applicationInfo.value = null; return }
   loadingApplication.value = true
   try {
     const result = await fetchMyDeveloperApplication()
     applicationApiMissing.value = result.apiMissing
     applicationInfo.value = normalizeApplicationRecord(result.application)
+  } finally { loadingApplication.value = false }
+}
+
+// 管理员获取全量工作流
+const loadMyWorkflows = async () => {
+  loadingWorkflows.value = true
+  try {
+    const result = await fetchAdminWorkflows({ page: 1, page_size: 50 })
+    const list = result?.items || result?.list || result?.data?.list || result?.data?.items || []
+    myWorkflows.value = Array.isArray(list) ? list : []
+  } catch (error) {
+    console.error('加载管理员工作流列表失败', error)
   } finally {
-    loadingApplication.value = false
+    loadingWorkflows.value = false
   }
 }
 
@@ -539,6 +485,7 @@ const refreshAll = async () => {
   try {
     await loadUser()
     await loadApplication()
+    await loadMyWorkflows()
   } catch (error) {
     loadError.value = error.message || '页面数据加载失败，请稍后重试'
   }
@@ -551,41 +498,107 @@ const openApplyDialog = () => {
 
 const submitApplication = async () => {
   if (!applyFormRef.value || !isZeroBasisRole.value) return
-
   const valid = await applyFormRef.value.validate().catch(() => false)
   if (!valid) return
 
   const reason = submitReasonText.value
-  if (!reason) {
-    ElMessage.warning('请完善申请内容')
-    return
-  }
-  if (reason.length > 500) {
-    ElMessage.warning('申请内容超过 500 字，请精简后再提交')
+  if (!reason || reason.length > 500) {
+    ElMessage.warning('申请内容需在 1-500 字以内')
     return
   }
 
   submitting.value = true
   try {
     const response = await submitDeveloperApplication({ reason })
-    applicationInfo.value =
-      normalizeApplicationRecord(response) || {
-        id: null,
-        reason,
-        status: 'pending',
-        reviewComment: '',
-        createdAt: '',
-        updatedAt: ''
-      }
-
+    applicationInfo.value = normalizeApplicationRecord(response) || { id: null, reason, status: 'pending', reviewComment: '', createdAt: '' }
     applyDialogVisible.value = false
     resetApplyForm()
-    ElMessage.success('申请提交成功，请等待管理员审核')
+    ElMessage.success('申请提交成功')
     await loadApplication()
   } catch (error) {
     ElMessage.error(error.message || '申请提交失败')
   } finally {
     submitting.value = false
+  }
+}
+
+// ===== 管理员工作流操作 =====
+
+// 新增：管理员一键审核通过的核心处理逻辑
+const handleAuditApprove = async (row) => {
+  try {
+    await ElMessageBox.confirm('确定要通过此工作流的审核吗？通过后，若该工作流设置为公开，则会自动呈现在社区大厅中。', '提示', {
+      type: 'success',
+      confirmButtonText: '审核通过',
+      cancelButtonText: '取消'
+    })
+    const id = row.id || row.workflow_id
+    // 调用 POST /api/agent/admin/workflows/{id}/audit 接口
+    await auditWorkflow(id, {
+      audit_status: 'APPROVED',
+      category: row.category || undefined
+    })
+    ElMessage.success('该工作流已成功通过审核！')
+    await loadMyWorkflows() // 重新拉取列表，实时刷新状态
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message || '审核处理失败')
+    }
+  }
+}
+
+const editWorkflowConfig = (row) => {
+  editWorkflowForm.value = {
+    id: row.id || row.workflow_id,
+    title: row.title || row.name || '',
+    description: row.description || '',
+    category: row.category || '',
+    is_public: row.is_public ? 1 : 0
+  }
+  editWorkflowVisible.value = true
+}
+
+const saveWorkflowEdit = async () => {
+  savingWorkflow.value = true
+  try {
+    await updateWorkflowAdmin(editWorkflowForm.value.id, {
+      title: editWorkflowForm.value.title,
+      description: editWorkflowForm.value.description,
+      category: editWorkflowForm.value.category,
+      is_public: editWorkflowForm.value.is_public
+    })
+    ElMessage.success('配置保存成功')
+    editWorkflowVisible.value = false
+    await loadMyWorkflows()
+  } catch (error) {
+    ElMessage.error(error.message || '保存失败')
+  } finally {
+    savingWorkflow.value = false
+  }
+}
+
+const toggleWorkflowPublic = async (row) => {
+  try {
+    const id = row.id || row.workflow_id
+    await updateWorkflowAdmin(id, { is_public: row.is_public ? 0 : 1 })
+    ElMessage.success(row.is_public ? '已设为私有' : '已公开')
+    await loadMyWorkflows()
+  } catch (error) {
+    ElMessage.error(error.message || '操作失败')
+  }
+}
+
+const handleTakeDown = async (row) => {
+  try {
+    await ElMessageBox.confirm('确定要下架这个工作流吗？', '提示', { type: 'warning' })
+    const id = row.id || row.workflow_id
+    await takeDownWorkflow(id)
+    ElMessage.success('下架成功')
+    await loadMyWorkflows()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message || '下架失败')
+    }
   }
 }
 
@@ -599,214 +612,40 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.user-center {
-  width: 100%;
-  height: 100%;
-  padding: 24px 0 32px;
-  overflow: auto;
-}
-
-.head-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.page-alert {
-  margin-bottom: 16px;
-}
-
-.top-grid {
-  margin-bottom: 16px;
-}
-
-.panel-card {
-  min-height: 360px;
-}
-
-.card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.card-title {
-  font-weight: 680;
-  color: var(--zs-text);
-}
-
-.basic-info-list {
-  display: grid;
-  gap: 10px;
-}
-
-.basic-info-item {
-  border: 1px solid var(--zs-border);
-  border-radius: 12px;
-  background: var(--zs-panel-soft);
-  padding: 12px 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.basic-info-label {
-  color: var(--zs-muted);
-  font-size: 13px;
-}
-
-.basic-info-value {
-  color: var(--zs-text);
-  font-size: 14px;
-  text-align: right;
-}
-
-.apply-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.apply-intro {
-  margin: 0;
-  color: var(--zs-text);
-  line-height: 1.7;
-}
-
-.apply-intro.muted {
-  color: var(--zs-muted);
-}
-
-.state-alert {
-  margin-bottom: 2px;
-}
-
-.state-box {
-  border: 1px solid var(--zs-border);
-  background: var(--zs-panel-soft);
-  border-radius: 14px;
-  padding: 14px 16px;
-}
-
-.state-box h4 {
-  margin: 0;
-  font-size: 16px;
-  color: var(--zs-text);
-}
-
-.state-box p {
-  margin: 8px 0 0;
-  color: var(--zs-muted);
-  line-height: 1.65;
-}
-
-.state-box.success {
-  border-color: rgba(125, 211, 167, 0.5);
-}
-
-.state-box.warning {
-  border-color: rgba(240, 195, 106, 0.6);
-}
-
-.state-box.danger {
-  border-color: rgba(255, 138, 138, 0.55);
-}
-
-.state-actions {
-  margin-top: 14px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.quota-card {
-  margin-bottom: 16px;
-  min-height: auto;
-}
-
-.quota-grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-}
-
-.quota-item {
-  border: 1px solid var(--zs-border);
-  border-radius: 12px;
-  background: var(--zs-panel-soft);
-  padding: 12px 14px;
-}
-
-.quota-label {
-  color: var(--zs-muted);
-  font-size: 13px;
-}
-
-.quota-value {
-  margin-top: 7px;
-  color: var(--zs-text);
-  font-size: 16px;
-  font-weight: 650;
-  line-height: 1.4;
-}
-
-.quota-progress {
-  margin-top: 14px;
-}
-
-.reserve-card {
-  margin-top: 8px;
-}
-
-.reserve-grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-}
-
-.reserve-item {
-  border: 1px solid var(--zs-border);
-  background: var(--zs-panel-soft);
-  border-radius: 14px;
-  padding: 14px;
-}
-
-.reserve-name {
-  font-size: 15px;
-  font-weight: 650;
-  color: var(--zs-text);
-}
-
-.reserve-desc {
-  margin: 8px 0 12px;
-  color: var(--zs-muted);
-  line-height: 1.6;
-  min-height: 44px;
-}
-
-.dialog-alert {
-  margin-bottom: 14px;
-}
-
-.reason-counter {
-  color: var(--zs-muted);
-  font-size: 13px;
-}
+.user-center { width: 100%; height: 100%; padding: 24px 0 32px; overflow: auto; }
+.head-actions { display: flex; align-items: center; gap: 10px; }
+.page-alert { margin-bottom: 16px; }
+.top-grid { margin-bottom: 16px; }
+.panel-card { min-height: 320px; }
+.workflow-card { margin-bottom: 16px; min-height: auto; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.card-title { font-weight: 680; color: var(--zs-text); }
+.basic-info-list { display: grid; gap: 10px; }
+.basic-info-item { border: 1px solid var(--zs-border); border-radius: 12px; background: var(--zs-panel-soft); padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.basic-info-label { color: var(--zs-muted); font-size: 13px; }
+.basic-info-value { color: var(--zs-text); font-size: 14px; text-align: right; }
+.apply-body { display: flex; flex-direction: column; gap: 12px; }
+.apply-intro { margin: 0; color: var(--zs-text); line-height: 1.7; }
+.apply-intro.muted { color: var(--zs-muted); }
+.state-alert { margin-bottom: 2px; }
+.state-box { border: 1px solid var(--zs-border); background: var(--zs-panel-soft); border-radius: 14px; padding: 14px 16px; }
+.state-box h4 { margin: 0; font-size: 16px; color: var(--zs-text); }
+.state-box p { margin: 8px 0 0; color: var(--zs-muted); line-height: 1.65; }
+.state-box.success { border-color: rgba(125, 211, 167, 0.5); }
+.state-box.warning { border-color: rgba(240, 195, 106, 0.6); }
+.state-box.danger { border-color: rgba(255, 138, 138, 0.55); }
+.state-actions { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+.quota-card { margin-bottom: 16px; min-height: auto; }
+.quota-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.quota-item { border: 1px solid var(--zs-border); border-radius: 12px; background: var(--zs-panel-soft); padding: 12px 14px; }
+.quota-label { color: var(--zs-muted); font-size: 13px; }
+.quota-value { margin-top: 7px; color: var(--zs-text); font-size: 16px; font-weight: 650; line-height: 1.4; }
+.quota-progress { margin-top: 14px; }
+.reason-counter { color: var(--zs-muted); font-size: 13px; margin-top: 5px; }
 
 @media (max-width: 960px) {
-  .panel-card {
-    min-height: auto;
-  }
-
-  .basic-info-item {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .basic-info-value {
-    text-align: left;
-  }
+  .panel-card { min-height: auto; }
+  .basic-info-item { align-items: flex-start; flex-direction: column; }
+  .basic-info-value { text-align: left; }
 }
 </style>
