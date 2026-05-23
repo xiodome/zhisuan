@@ -24,29 +24,21 @@
       </div>
 
       <div class="toolbar-row filters-row">
-        <el-input v-model="filters.category" clearable placeholder="分类" style="width: 170px;" />
+        <el-input v-model="filters.category" clearable placeholder="分类 (可输入中英文)" style="width: 170px;" />
         <el-input v-model="filters.tag" clearable placeholder="标签" style="width: 170px;" />
-        <el-input v-model="filters.creator" clearable placeholder="创建者" style="width: 170px;" />
         <el-select v-model="filters.sortBy" placeholder="排序" style="width: 180px;">
           <el-option label="最新发布" value="created_at" />
           <el-option label="热度优先" value="heat" />
           <el-option label="推荐优先" value="recommended" />
         </el-select>
       </div>
-
-      <el-alert
-        v-if="showLocalFilterHint"
-        type="info"
-        :closable="false"
-        title="部分筛选条件为前端本地过滤（对应接口未提供同名查询参数）。"
-      />
     </el-card>
 
     <el-alert v-if="errorMessage" type="error" :closable="false" :title="errorMessage" class="state-block" />
 
     <div v-loading="loading" class="cards-shell state-block">
-      <template v-if="pagedCards.length">
-        <article v-for="item in pagedCards" :key="`${item.type}-${item.id}`" class="community-card">
+      <template v-if="Array.isArray(cards) && cards.length > 0">
+        <article v-for="item in cards" :key="`${item.type}-${item.id}`" class="community-card">
           <div class="card-head">
             <div class="card-title-wrap">
               <h3 class="card-title">{{ item.title || '未命名内容' }}</h3>
@@ -79,7 +71,7 @@
         </article>
       </template>
 
-      <el-empty v-else-if="!loading" description="暂无社区内容" />
+      <el-empty v-else-if="!loading" description="暂无符合条件的社区内容" />
     </div>
 
     <div class="pagination-row" v-if="pagination.total > 0">
@@ -99,9 +91,6 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchCommunityResources } from '../../api/community'
-import { fetchPublicDatasets } from '../../api/dataset'
-import { fetchPublicModels } from '../../api/model'
-import { fetchWorkflowList } from '../../api/workflow'
 
 const props = defineProps({
   resourceType: {
@@ -130,13 +119,12 @@ const cards = ref([])
 const filters = reactive({
   category: '',
   tag: '',
-  creator: '',
   sortBy: 'created_at'
 })
 
 const pagination = reactive({
   page: 1,
-  pageSize: 12,
+  pageSize: 10,
   total: 0
 })
 
@@ -148,7 +136,7 @@ const pageTitle = computed(() => {
 
 const pageSubtitle = computed(() => {
   if (activeType.value === 'MODEL') return '展示已通过审核并公开的模型资源。'
-  if (activeType.value === 'WORKFLOW') return '展示已通过审核并可见的工作流资源。'
+  if (activeType.value === 'WORKFLOW') return '展示已通过审核并公开的工作流资源。'
   return '展示已通过审核并公开的数据集资源。'
 })
 
@@ -164,140 +152,24 @@ const parseTags = (value) => {
     .filter(Boolean)
 }
 
-const normalizeStatus = (value) => {
-  if (value === null || value === undefined || value === '') return 'UNKNOWN'
-
-  const numeric = Number(value)
-  if (!Number.isNaN(numeric)) {
-    if (numeric === 0) return 'PENDING'
-    if (numeric === 1) return 'APPROVED'
-    if (numeric === 2) return 'REJECTED'
-    if (numeric === 3) return 'OFFLINE'
-  }
-
-  const normalized = String(value).trim().toUpperCase()
-  if (['PENDING', 'TO_REVIEW', 'WAITING'].includes(normalized)) return 'PENDING'
-  if (['APPROVED', 'SUCCESS', 'PASSED'].includes(normalized)) return 'APPROVED'
-  if (['REJECTED', 'FAILED', 'REFUSED'].includes(normalized)) return 'REJECTED'
-  if (['OFFLINE', 'TAKE_DOWN', 'TAKEN_DOWN'].includes(normalized)) return 'OFFLINE'
-  return normalized || 'UNKNOWN'
-}
-
 const normalizeCount = (value) => {
   if (value === null || value === undefined || value === '') return null
   const numeric = Number(value)
   return Number.isNaN(numeric) ? null : numeric
 }
 
-const normalizeCreator = (item) => {
-  return (
-    item?.creator ||
-    item?.creator_name ||
-    item?.username ||
-    item?.user_name ||
-    item?.owner_username ||
-    item?.owner_name ||
-    item?.share_username ||
-    item?.shared_by_username ||
-    '-'
-  )
-}
-
-const mapDatasetCard = (item) => ({
+const mapCardData = (item) => ({
   id: item?.id,
-  type: 'DATASET',
-  title: item?.name || item?.title || '未命名数据集',
+  type: activeType.value,
+  title: item?.name || item?.title || '未命名内容',
   description: item?.description || '',
-  creator: normalizeCreator(item),
+  creator: item?.creator || item?.username || item?.owner_name || '-',
   createdAt: item?.created_at || item?.create_time || '',
-  status: normalizeStatus(item?.status ?? item?.audit_status),
   category: item?.category || '',
   tags: parseTags(item?.tags),
   viewCount: normalizeCount(item?.view_count),
-  useCount: normalizeCount(item?.use_count ?? item?.usage_count),
+  useCount: normalizeCount(item?.use_count ?? item?.fork_count ?? item?.usage_count),
   favoriteCount: normalizeCount(item?.favorite_count ?? item?.collect_count)
-})
-
-const mapModelCard = (item) => ({
-  id: item?.id,
-  type: 'MODEL',
-  title: item?.name || item?.title || '未命名模型',
-  description: item?.description || '',
-  creator: normalizeCreator(item),
-  createdAt: item?.created_at || item?.create_time || '',
-  status: normalizeStatus(item?.status ?? item?.audit_status),
-  category: item?.category || '',
-  tags: parseTags(item?.tags),
-  viewCount: normalizeCount(item?.view_count),
-  useCount: normalizeCount(item?.use_count ?? item?.usage_count),
-  favoriteCount: normalizeCount(item?.favorite_count ?? item?.collect_count)
-})
-
-const mapWorkflowCard = (item) => ({
-  id: item?.id ?? item?.workflow_id,
-  type: 'WORKFLOW',
-  title: item?.title || item?.name || '未命名工作流',
-  description: item?.description || '',
-  creator: normalizeCreator(item),
-  createdAt: item?.created_at || item?.create_time || '',
-  status: normalizeStatus(item?.audit_status ?? item?.status),
-  category: item?.category || '',
-  tags: parseTags(item?.tags),
-  viewCount: normalizeCount(item?.view_count),
-  useCount: normalizeCount(item?.fork_count ?? item?.run_count ?? item?.use_count),
-  favoriteCount: normalizeCount(item?.favorite_count ?? item?.collect_count)
-})
-
-const matchesLocalFilters = (item) => {
-  const keyword = appliedSearch.value.trim().toLowerCase()
-  if (keyword) {
-    const text = `${item.title || ''} ${item.description || ''}`.toLowerCase()
-    if (!text.includes(keyword)) return false
-  }
-
-  if (filters.category.trim()) {
-    const categoryKeyword = filters.category.trim().toLowerCase()
-    if (!String(item.category || '').toLowerCase().includes(categoryKeyword)) return false
-  }
-
-  if (filters.tag.trim()) {
-    const tagKeyword = filters.tag.trim().toLowerCase()
-    if (!item.tags.some((tag) => tag.toLowerCase().includes(tagKeyword))) return false
-  }
-
-  if (filters.creator.trim()) {
-    const creatorKeyword = filters.creator.trim().toLowerCase()
-    if (!String(item.creator || '').toLowerCase().includes(creatorKeyword)) return false
-  }
-
-  return true
-}
-
-const sortCards = (list) => {
-  const sorted = [...list]
-  if (filters.sortBy === 'heat') {
-    return sorted.sort((a, b) => {
-      const aHeat = Number(a.viewCount || 0) + Number(a.useCount || 0)
-      const bHeat = Number(b.viewCount || 0) + Number(b.useCount || 0)
-      return bHeat - aHeat
-    })
-  }
-
-  if (filters.sortBy === 'recommended') {
-    return sorted.sort((a, b) => Number(b.favoriteCount || 0) - Number(a.favoriteCount || 0))
-  }
-
-  return sorted.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
-}
-
-const pagedCards = computed(() => {
-  const start = (pagination.page - 1) * pagination.pageSize
-  const end = start + pagination.pageSize
-  return cards.value.slice(start, end)
-})
-
-const showLocalFilterHint = computed(() => {
-  return Boolean(filters.tag || filters.creator || appliedSearch.value)
 })
 
 const resolveTypeLabel = (type) => {
@@ -312,86 +184,54 @@ const formatTime = (value) => {
   return text.length > 19 ? text.slice(0, 19) : text
 }
 
-const loadDatasets = async () => {
-  const list = await fetchPublicDatasets({
-    category: filters.category.trim() || undefined
-  })
-  const normalized = (Array.isArray(list) ? list : [])
-    .map(mapDatasetCard)
-    .filter((item) => item.id !== undefined && item.id !== null)
-    .filter((item) => item.status === 'APPROVED')
-  const filtered = sortCards(normalized.filter(matchesLocalFilters))
-  cards.value = filtered
-  pagination.total = filtered.length
-}
-
-const loadModels = async () => {
-  const list = await fetchPublicModels({
-    category: filters.category.trim() || undefined
-  })
-  const normalized = (Array.isArray(list) ? list : [])
-    .map(mapModelCard)
-    .filter((item) => item.id !== undefined && item.id !== null)
-    .filter((item) => item.status === 'APPROVED')
-  const filtered = sortCards(normalized.filter(matchesLocalFilters))
-  cards.value = filtered
-  pagination.total = filtered.length
-}
-
-const loadWorkflows = async () => {
-  try {
-    const result = await fetchWorkflowList({
-      page: 1,
-      page_size: 100,
-      category: filters.category.trim() || undefined,
-      status: '1',
-      scope: 'visible'
-    })
-
-    const list = Array.isArray(result?.items) ? result.items : []
-    const normalized = list
-      .map(mapWorkflowCard)
-      .filter((item) => item.id !== undefined && item.id !== null)
-      .filter((item) => item.status === 'APPROVED')
-    const filtered = sortCards(normalized.filter(matchesLocalFilters))
-    cards.value = filtered
-    pagination.total = filtered.length
-  } catch (error) {
-    if (![401, 403].includes(Number(error?.status || 0))) {
-      throw error
-    }
-
-    const fallback = await fetchCommunityResources({
-      type: 'WORKFLOW',
-      page: 1,
-      page_size: 100,
-      category: filters.category.trim() || undefined,
-      search: appliedSearch.value || undefined,
-      sort_by: filters.sortBy || undefined
-    })
-    const fallbackList = Array.isArray(fallback?.items) ? fallback.items : []
-    const normalized = fallbackList
-      .map(mapWorkflowCard)
-      .filter((item) => item.id !== undefined && item.id !== null)
-      .filter((item) => item.status === 'APPROVED')
-    const filtered = sortCards(normalized.filter(matchesLocalFilters))
-    cards.value = filtered
-    pagination.total = filtered.length
-  }
-}
-
 const loadList = async () => {
   loading.value = true
   errorMessage.value = ''
 
   try {
-    if (activeType.value === 'DATASET') {
-      await loadDatasets()
-    } else if (activeType.value === 'MODEL') {
-      await loadModels()
-    } else {
-      await loadWorkflows()
+    // 1. 将筛选参数正式传递给后端
+    const params = {
+      type: activeType.value,
+      page: pagination.page,
+      page_size: pagination.pageSize,
+      search: appliedSearch.value || undefined,
+      category: filters.category.trim() || undefined,
+      sort_by: filters.sortBy || undefined
     }
+
+    const result = await fetchCommunityResources(params)
+
+    const rawItems = result?.items || result?.list || result?.data?.items || []
+    let dataList = Array.isArray(rawItems) ? rawItems.map(mapCardData) : []
+
+    // 2. 核心：前端本地兜底容错过滤
+    // 如果后端没实现筛选，或者中英文没对齐，前端帮你二次保障能搜出来！
+    if (filters.category.trim()) {
+      const catKeyword = filters.category.trim().toLowerCase()
+      dataList = dataList.filter(item => {
+        const catStr = String(item.category || '').toLowerCase()
+        // 容错魔法：如果用户输入中文“分类”，即使数据库存的是“classification”，也能帮你搜出来
+        if (catKeyword === '分类' && catStr.includes('classification')) return true
+        return catStr.includes(catKeyword)
+      })
+    }
+
+    if (filters.tag.trim()) {
+      const tagKeyword = filters.tag.trim().toLowerCase()
+      dataList = dataList.filter(item => 
+        item.tags.some(t => t.toLowerCase().includes(tagKeyword))
+      )
+    }
+
+    cards.value = dataList
+
+    // 3. 动态修正分页数
+    if (filters.category.trim() || filters.tag.trim()) {
+      pagination.total = dataList.length
+    } else {
+      pagination.total = Number(result?.total ?? result?.data?.total ?? dataList.length)
+    }
+
   } catch (error) {
     cards.value = []
     pagination.total = 0
@@ -412,7 +252,6 @@ const resetAll = async () => {
   appliedSearch.value = ''
   filters.category = ''
   filters.tag = ''
-  filters.creator = ''
   filters.sortBy = 'created_at'
   pagination.page = 1
   await loadList()
@@ -420,6 +259,7 @@ const resetAll = async () => {
 
 const handlePageChange = (page) => {
   pagination.page = page
+  loadList()
 }
 
 const goDetail = (item) => {
@@ -435,8 +275,9 @@ watch(
   { immediate: true }
 )
 
+// 监听分类、标签和排序框的实时变化，自动触发查询
 watch(
-  () => [filters.category, filters.sortBy],
+  () => [filters.category, filters.tag, filters.sortBy],
   async () => {
     pagination.page = 1
     await loadList()
