@@ -106,16 +106,55 @@ export async function fetchQuotaOverview() {
   }
 }
 
-export async function fetchQuotaConsumptionRecords() { 
-  const res = await api.get('/api/quota/admin/logs', { params: { page: 1, page_size: 20 } })
+const agentQuotaActionLabels = {
+  agent_llm_manager_parse: 'Agent LLM - 需求解析',
+  agent_llm_data_analysis: 'Agent LLM - 数据分析',
+  agent_llm_model_plan: 'Agent LLM - 模型规划',
+  agent_llm_operation_report: 'Agent LLM - 报告生成',
+  task_execution: '任务执行',
+  file_upload: '文件上传'
+}
+
+const resolveQuotaActionLabel = (action) => agentQuotaActionLabels[action] || action || '-'
+
+export async function fetchQuotaConsumptionRecords(filters = {}) { 
+  const [logRes, userRes] = await Promise.all([
+    api.get('/api/quota/admin/logs', { params: { page: 1, page_size: 100 } }),
+    api.get('/api/quota/admin/users', { params: { page: 1, page_size: 100 } })
+  ])
+  const userData = unwrap(userRes) || {}
+  const users = Array.isArray(userData) ? userData : (userData.list || userData.items || [])
+  const userMap = new Map(users.map((item) => [Number(item.id), item]))
+  const res = logRes
   const data = unwrap(res) || {}
   
   // 安全提取数组
   const list = Array.isArray(data) ? data : (data.list || data.items || [])
+  const normalized = list.map((item) => {
+    const user = userMap.get(Number(item.user_id)) || {}
+    const action = item.action || ''
+    return {
+      id: item.id,
+      userId: item.user_id,
+      username: user.username || `用户 ${item.user_id}`,
+      endpoint: resolveQuotaActionLabel(action),
+      rawEndpoint: action,
+      modelName: action.startsWith('agent_llm_') ? 'Agent 工作流 LLM' : '-',
+      tokenConsumed: item.tokens_consumed,
+      taskId: item.task_id,
+      createdAt: item.created_at?.replace('T', ' ').substring(0, 19) || '-'
+    }
+  }).filter((item) => {
+    const username = String(filters.username || '').trim().toLowerCase()
+    const endpoint = String(filters.endpoint || '').trim()
+    const usernameMatched = !username || item.username.toLowerCase().includes(username)
+    const endpointMatched = !endpoint || item.rawEndpoint === endpoint || item.endpoint === endpoint
+    return usernameMatched && endpointMatched
+  })
   
   return { 
-    list: list, 
-    total: data.total || list.length 
+    list: normalized, 
+    total: normalized.length 
   } 
 }
 
