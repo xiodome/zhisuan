@@ -4,7 +4,6 @@
       <div>
         <p class="zs-eyebrow">Community Publish</p>
         <h1 class="zs-title">发布模型</h1>
-        <p class="zs-subtitle">字段完全对齐 Swagger `ModelCreate`，不支持的字段已做 TODO 标注并前端降级。</p>
       </div>
       <el-button plain @click="router.push('/community')">返回社区</el-button>
     </div>
@@ -20,15 +19,15 @@
         </el-form-item>
 
         <el-form-item label="模型类型">
-          <el-input v-model="form.model_type" placeholder="TODO: Swagger ModelCreate 无 model_type 字段，仅本地展示" />
+          <el-input v-model="form.model_type"/>
         </el-form-item>
 
         <el-form-item label="适用场景">
-          <el-input v-model="form.applicable_scenario" placeholder="TODO: Swagger ModelCreate 无适用场景字段，仅本地展示" />
+          <el-input v-model="form.applicable_scenario"/>
         </el-form-item>
 
         <el-form-item label="分类">
-          <el-input v-model="form.category" placeholder="可选" />
+          <el-input v-model="form.category"/>
         </el-form-item>
 
         <el-form-item label="标签">
@@ -53,7 +52,7 @@
         <el-form-item v-if="form.sourceMode === 'upload'" label="上传模型文件">
           <el-upload drag :show-file-list="false" disabled>
             <el-icon size="30"><Upload /></el-icon>
-            <div>TODO: Swagger 当前缺少模型文件上传接口，暂不可直接上传</div>
+            <div>暂不可直接上传</div>
           </el-upload>
         </el-form-item>
 
@@ -76,7 +75,6 @@
             v-model="form.remark"
             type="textarea"
             :rows="2"
-            placeholder="TODO: Swagger ModelCreate 无 remark 字段，此备注仅前端展示不提交"
           />
         </el-form-item>
 

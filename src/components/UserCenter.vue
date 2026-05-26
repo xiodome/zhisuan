@@ -122,7 +122,7 @@
       </el-col>
     </el-row>
 
-    <el-card shadow="hover" class="panel-card workflow-card" v-loading="loadingWorkflows">
+    <el-card v-if="isAdminRole" shadow="hover" class="panel-card workflow-card" v-loading="loadingWorkflows">
       <template #header>
         <div class="card-head">
           <span class="card-title">全平台工作流统管中心 (管理员模式)</span>
@@ -321,10 +321,20 @@ const applyRules = {
 // 辅助函数
 const clampPercent = (value) => {
   const numeric = Number(value)
-  if (!Number.isNaN(numeric)) return 0
+  if (Number.isNaN(numeric)) return 0
   if (numeric < 0) return 0
   if (numeric > 100) return 100
   return numeric
+}
+
+const normalizeWarningPercent = (rawThreshold, quotaBase) => {
+  if (rawThreshold === null || rawThreshold === undefined) return null
+  const numeric = Number(rawThreshold)
+  if (!Number.isFinite(numeric)) return null
+
+  if (numeric >= 0 && numeric <= 1) return clampPercent(numeric * 100)
+  if (quotaBase > 0 && numeric > 1) return clampPercent((numeric / quotaBase) * 100)
+  return clampPercent(numeric)
 }
 
 const getByPath = (source, path) =>
@@ -350,6 +360,7 @@ const statusTagMap = { none: 'info', pending: 'warning', approved: 'success', re
 const currentRole = computed(() => String(userInfo.value?.role || userStore.role || '').toUpperCase())
 const roleLabel = computed(() => roleMap[currentRole.value] || currentRole.value || '用户')
 const displayUserName = computed(() => userInfo.value?.username || userStore.name || '-')
+const isAdminRole = computed(() => currentRole.value === 'ADMIN')
 const isZeroBasisRole = computed(() => currentRole.value === 'ZERO_BASIS')
 
 const accountStatus = computed(() => {
@@ -362,16 +373,45 @@ const accountStatus = computed(() => {
 // Quota 逻辑
 const quotaInfo = computed(() => {
   const source = userInfo.value || {}
-  const tokenQuota = readFirstNumeric(source, ['tokenQuota', 'quota.tokenQuota'])
-  const tokenLimit = readFirstNumeric(source, ['tokenLimit', 'quota.tokenLimit'])
-  const tokenUsed = readFirstNumeric(source, ['tokenUsed', 'quota.tokenUsed'])
-  const warningPercent = readFirstNumeric(source, ['warningThreshold', 'quota.warningThreshold'])
+  const tokenQuota = readFirstNumeric(source, [
+    'tokenQuota',
+    'token_quota',
+    'api_token_limit',
+    'quota.tokenQuota',
+    'quota.token_quota',
+    'quota.api_token_limit'
+  ])
+  const tokenLimit = readFirstNumeric(source, [
+    'tokenLimit',
+    'token_limit',
+    'api_token_limit',
+    'quota.tokenLimit',
+    'quota.token_limit',
+    'quota.api_token_limit'
+  ])
+  const tokenUsed = readFirstNumeric(source, [
+    'tokenUsed',
+    'token_used',
+    'api_token_used',
+    'quota.tokenUsed',
+    'quota.token_used',
+    'quota.api_token_used'
+  ])
+  const warningRaw = readFirstNumeric(source, [
+    'warningThreshold',
+    'warning_threshold',
+    'api_token_warning_threshold',
+    'quota.warningThreshold',
+    'quota.warning_threshold',
+    'quota.api_token_warning_threshold'
+  ])
+  const resolvedQuota = Number(tokenQuota || 0)
 
   return {
-    tokenQuota: Number(tokenQuota || 0),
+    tokenQuota: resolvedQuota,
     tokenLimit: Number(tokenLimit || tokenQuota || 0),
     tokenUsed: Number(tokenUsed || 0),
-    warningThreshold: warningPercent !== null ? clampPercent(warningPercent) : null
+    warningThreshold: normalizeWarningPercent(warningRaw, resolvedQuota)
   }
 })
 
@@ -468,6 +508,10 @@ const loadApplication = async () => {
 
 // 管理员获取全量工作流
 const loadMyWorkflows = async () => {
+  if (!isAdminRole.value) {
+    myWorkflows.value = []
+    return
+  }
   loadingWorkflows.value = true
   try {
     const result = await fetchAdminWorkflows({ page: 1, page_size: 50 })

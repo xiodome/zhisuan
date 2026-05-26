@@ -33,3 +33,6 @@ Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://
 新增个人中心界面，支持零基础用户申请成为AI开发者，同时增加管理员对于申请的审核。
 修改了创建任务时无法预览数据的bug
 新增社区模块，支持数据集、模型、工作流三种内容。修改了之前管理员控制台部分的关于三种内容的审核。
+
+### 2026.5.26
+修改了个人中心部分无法正常显示API额度的bug

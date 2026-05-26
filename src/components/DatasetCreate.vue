@@ -4,7 +4,6 @@
       <div>
         <p class="zs-eyebrow">Community Publish</p>
         <h1 class="zs-title">发布数据集</h1>
-        <p class="zs-subtitle">字段完全对齐 Swagger `DatasetCreate`，支持上传文件或引用已有数据集资源。</p>
       </div>
       <el-button plain @click="router.push('/community')">返回社区</el-button>
     </div>
@@ -52,7 +51,6 @@
           >
             <el-icon size="30"><Upload /></el-icon>
             <div>将 CSV 文件拖到这里，或点击上传</div>
-            <div class="upload-tip">Swagger 使用 `/api/agent/datasets/upload` 上传，结果自动回填。</div>
           </el-upload>
           <div class="source-preview" v-if="uploadResultText">{{ uploadResultText }}</div>
         </el-form-item>
@@ -67,15 +65,15 @@
           <el-input v-model="form.file_url" placeholder="例如：https://example.com/data.csv" />
         </el-form-item>
 
-        <el-form-item label="文件 URL (file_url)">
-          <el-input v-model="form.file_url" placeholder="可选，接口字段 file_url" />
+        <el-form-item label="文件 URL">
+          <el-input v-model="form.file_url" placeholder="可选" />
         </el-form-item>
 
-        <el-form-item label="文件大小 (file_size)">
+        <el-form-item label="文件大小">
           <el-input-number v-model="form.file_size" :min="0" controls-position="right" />
         </el-form-item>
 
-        <el-form-item label="样本行数 (row_count)">
+        <el-form-item label="样本行数">
           <el-input-number v-model="form.row_count" :min="0" controls-position="right" />
         </el-form-item>
 
@@ -88,7 +86,6 @@
             v-model="form.remark"
             type="textarea"
             :rows="2"
-            placeholder="TODO: Swagger 的 DatasetCreate 当前无 remark 字段，此备注仅前端展示不提交"
           />
         </el-form-item>
 
