@@ -365,9 +365,13 @@
               <p v-else>暂无特征列信息。</p>
             </div>
 
-            <div v-if="reportFeatureImportance.length" class="report-section feature-importance-section">
+            <div 
+              v-if="reportFeatureImportance.length" 
+              class="report-section" 
+              :style="{ height: Math.max(380, reportFeatureImportance.length * 45) + 'px' }"
+            >
               <span class="section-title">特征重要性</span>
-              <v-chart class="chart" :option="featureImportanceChartOption" autoresize />
+              <v-chart class="chart" :option="featureImportanceChartOption" autoresize :init-options="{ renderer: 'svg' }" />
             </div>
 
             <div class="report-block">
@@ -680,7 +684,7 @@
             </el-button>
           </div>
           <div v-if="reviewCodeLoading" class="review-code-empty">正在加载 Operation Agent 代码...</div>
-          <div v-else-if="!String(editPayload.code || '').trim()" class="review-code-empty warning">
+          <div v-else-if="!String(editPayload.code || '').trim()" class="reviewCodeLoadError warning">
             {{ reviewCodeLoadError || '当前未读取到代码内容，可能是后端该阶段尚未返回代码字段。' }}
           </div>
           <div class="review-code-shell">
@@ -771,16 +775,17 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '../store/user'
-// [引入 ECharts, Monaco, Html2Pdf]
+// 【修复】：引入了 LegendComponent, SVGRenderer 以支持图例和矢量图防切割
 import { use } from 'echarts/core'
 import { BarChart } from 'echarts/charts'
-import { TooltipComponent, GridComponent, TitleComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
+import { TooltipComponent, GridComponent, TitleComponent, LegendComponent } from 'echarts/components'
+import { CanvasRenderer, SVGRenderer } from 'echarts/renderers'
 import VChart from 'vue-echarts'
 import VueMonacoEditor from '@guolao/vue-monaco-editor'
 import html2pdf from 'html2pdf.js'
 
-use([TooltipComponent, GridComponent, TitleComponent, BarChart, CanvasRenderer])
+// 【修复】：在 use 中注册 LegendComponent 和 SVGRenderer
+use([TooltipComponent, GridComponent, TitleComponent, LegendComponent, BarChart, CanvasRenderer, SVGRenderer])
 
 import {
   cancelAgentTask,
@@ -1037,16 +1042,22 @@ const featureImportanceChartOption = computed(() => {
       importance: Number(item.importance ?? item.value ?? 0)
     }))
     .sort((a, b) => a.importance - b.importance)
-  const textColor = getThemeCssVar('--zs-text', '#1f2430')
-  const mutedColor = getThemeCssVar('--zs-muted', '#667085')
   const borderColor = getThemeCssVar('--zs-border', '#d0d7e2')
   return {
+    animation: false,
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    grid: { left: 120, right: 28, top: 18, bottom: 14, containLabel: false },
+    legend: {
+      show: true,
+      data: ['特征重要性'],
+      textStyle: { color: '#000000' },
+      top: 0,
+      right: '4%'
+    },
+    grid: { left: '2%', right: '4%', top: 32, bottom: 14, containLabel: true },
     xAxis: {
       type: 'value',
       boundaryGap: [0, 0.01],
-      axisLabel: { color: mutedColor },
+      axisLabel: { color: '#000000' }, 
       axisLine: { lineStyle: { color: borderColor } },
       splitLine: { lineStyle: { color: borderColor, opacity: 0.4 } }
     },
@@ -1054,14 +1065,16 @@ const featureImportanceChartOption = computed(() => {
       type: 'category',
       data: data.map((item) => item.feature),
       axisLabel: {
-        color: textColor,
-        width: 160,
-        overflow: 'truncate'
+        color: '#000000', 
+        width: 220,
+        overflow: 'truncate',
+        interval: 0
       },
       axisLine: { lineStyle: { color: borderColor } }
     },
     series: [
       {
+        name: '特征重要性',
         type: 'bar',
         data: data.map((item) => item.importance),
         itemStyle: { color: '#5470C6', borderRadius: [0, 4, 4, 0] }
@@ -1933,7 +1946,6 @@ const submitReviewAndResume = async (actionType) => {
   try {
     const isEdit = actionType === 'edit_and_continue'
     const resolvedPatch = (() => {
-      if (!isEdit) return null
       if (patchText.value.trim()) {
         try {
           return JSON.parse(patchText.value)
@@ -1943,18 +1955,27 @@ const submitReviewAndResume = async (actionType) => {
       }
       return buildReviewPatch(resolvedReviewStage.value)
     })()
+
     await submitAgentReview(currentTaskId.value, {
       action: actionType,
       patch: resolvedPatch,
       comment: reviewComment.value.trim(),
-      auto_resume: false,
+      auto_resume: actionType === 'approve', 
       offline: runOffline.value
     })
+
     if (actionType === 'approve') {
       reviewDialogVisible.value = false
       pendingReview.value = null
-      const result = await resumeAgentTask(currentTaskId.value, { offline: runOffline.value })
-      syncTaskState(result)
+      
+      try {
+        const result = await resumeAgentTask(currentTaskId.value, { offline: runOffline.value })
+        syncTaskState(result)
+      } catch (e) {
+        if (!e.message.includes('没有待审核') && !e.message.includes('not in waiting')) {
+          console.warn('Resume warning:', e.message)
+        }
+      }
       startRunPolling()
     } else {
       ElMessage.success('修改已临时保存到后端')
@@ -2156,13 +2177,30 @@ const downloadReportPDF = async () => {
 
   ElMessage.info('正在处理白底黑字科研排版，请稍候...')
 
-  // 1. 暴力注入全局打印样式，跳过 Vue scoped 的限制，强杀所有深色背景
+  // 1. 暴力注入全局打印样式
   const printStyle = document.createElement('style')
   printStyle.id = 'pdf-print-style'
   printStyle.innerHTML = `
-    #report-content { background-color: #ffffff !important; color: #000000 !important; }
+    /* 强制给报告容器一个固定的桌面端宽度，防止在小屏幕/笔记本下触发拥挤和右侧截断 */
+    #report-content { 
+      background-color: #ffffff !important; 
+      color: #000000 !important; 
+      width: 1024px !important; 
+      min-width: 1024px !important;
+      max-width: 1024px !important;
+      padding: 20px !important; 
+      margin: 0 auto !important;
+    }
     #report-content * { color: #000000 !important; border-color: #dcdfe6 !important; }
-    /* 去除卡片背景和阴影，还原纯白文档感 */
+    
+    /* 允许超高图表正常跨页，彻底解除避开分页导致的下半部分直接消失的 Bug */
+    #report-content .report-summary-grid,
+    #report-content .report-section,
+    #report-content .report-block {
+      page-break-inside: auto !important;
+      break-inside: auto !important;
+    }
+
     #report-content .report-summary-card,
     #report-content .report-section,
     #report-content .report-block {
@@ -2171,7 +2209,6 @@ const downloadReportPDF = async () => {
       box-shadow: none !important;
       border: 1px solid #dcdfe6 !important;
     }
-    /* 强制 Element 表格在截图时变为白底黑字 */
     #report-content .el-table,
     #report-content .el-table th,
     #report-content .el-table tr,
@@ -2180,15 +2217,11 @@ const downloadReportPDF = async () => {
       color: #000000 !important;
       border-bottom: 1px solid #dcdfe6 !important;
     }
-    /* 标签底色调整为浅灰，确保黑字清晰 */
     #report-content .report-tags span {
       background-color: #f4f4f5 !important;
       color: #000000 !important;
       border: 1px solid #dcdfe6 !important;
     }
-    
-    /* ================= 专门修复联网参考 ================= */
-    /* 强制参考卡片白底、断字处理防止撑爆 */
     #report-content .reference-item {
       background-color: #ffffff !important;
       background: none !important;
@@ -2196,50 +2229,47 @@ const downloadReportPDF = async () => {
       border: 1px solid #dcdfe6 !important;
       word-break: break-word !important; 
     }
-    /* 针对带超链接的 <a> 标签，强制抹除默认蓝色及下划线，变为纯黑 */
     #report-content a.reference-item,
     #report-content .reference-item strong,
     #report-content .reference-item span {
       color: #000000 !important;
       text-decoration: none !important;
     }
-    /* ==================================================== */
   `
   document.head.appendChild(printStyle)
 
-  // 2. 临时强制切换页面的主题为 Light (为了让 ECharts Canvas 内部的文字重绘为黑色)
   const oldTheme = document.documentElement.getAttribute('data-theme')
   const isDark = document.documentElement.classList.contains('dark')
   document.documentElement.setAttribute('data-theme', 'light')
   document.documentElement.classList.remove('dark')
 
-  // 3. 核心：必须等待足够长的时间(600ms)，让图表动画和浏览器重绘彻底完成
-  await new Promise(resolve => setTimeout(resolve, 600))
+  // 等待 800ms，确保 SVG 渲染器和强制 1024px 的宽度修改彻底生效
+  await new Promise(resolve => setTimeout(resolve, 800))
 
   try {
-    // 4. 开始纯净截图
     await html2pdf().from(element).set({
       margin: [15, 15, 15, 15],
       filename: `Research_Report_${currentTaskId.value}.pdf`,
       image: { type: 'jpeg', quality: 1 },
+      pagebreak: { mode: ['css', 'legacy'] }, // 启用 html2pdf 原生分页引擎
       html2canvas: { 
         scale: 2, 
         useCORS: true, 
-        backgroundColor: '#ffffff', // 再次确保底层画布是白色的
-        logging: false
+        backgroundColor: '#ffffff',
+        logging: false,
+        scrollY: 0, // 确保不管用户滚动到哪，都从容器顶部开始截取
+        windowWidth: 1060 // 配合 1024px 宽度，提供充足的底层渲染视口
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     }).save()
   } catch (error) {
     ElMessage.error('PDF 导出出错')
   } finally {
-    // 5. 导出完成后：清理现场，神不知鬼不觉地恢复用户原本的深色模式
     if (document.getElementById('pdf-print-style')) {
       document.head.removeChild(printStyle)
     }
     if (oldTheme) document.documentElement.setAttribute('data-theme', oldTheme)
     else document.documentElement.removeAttribute('data-theme')
-    
     if (isDark) document.documentElement.classList.add('dark')
   }
 }
@@ -2646,10 +2676,7 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1.2;
 }
-.feature-importance-section {
-  height: 350px;
-  overflow: hidden;
-}
+
 .section-title {
   margin-bottom: 8px;
 }
