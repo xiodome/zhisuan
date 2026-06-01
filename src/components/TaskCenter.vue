@@ -596,7 +596,7 @@
     </el-dialog>
 
     <el-dialog v-model="reviewDialogVisible" :title="`人工审核确认 - ${reviewStageLabel}`" width="850px" class="agent-dialog">
-      <div v-if="pendingReview" class="review-body">
+      <div v-if="hasPendingReview" class="review-body">
         <template v-if="resolvedReviewStage === 'parse_review'">
           <el-alert title="请核对 AI 解析结果并确认目标列和特征列。" type="info" show-icon :closable="false" />
           <div class="review-current-strip">
@@ -679,7 +679,13 @@
           <el-alert title="Agent 已生成执行代码，您可以在下方直接编辑并保存。" type="warning" show-icon :closable="false" />
           <div class="review-code-toolbar">
             <span>可直接编辑 Operation Agent 生成代码并保存到后端。</span>
-            <el-button type="warning" plain :loading="reviewing" @click="submitReviewAndResume('edit_and_continue')">
+            <el-button
+              type="warning"
+              plain
+              :loading="reviewing"
+              :disabled="!hasPendingReview || !canReview"
+              @click="submitReviewAndResume('edit_and_continue')"
+            >
               保存修改
             </el-button>
           </div>
@@ -717,12 +723,17 @@
 
       <template #footer>
         <el-button plain @click="reviewDialogVisible = false">取消</el-button>
-        <el-button type="warning" plain @click="submitReviewAndResume('edit_and_continue')">
+        <el-button
+          type="warning"
+          plain
+          :disabled="!hasPendingReview || !canReview || reviewing"
+          @click="submitReviewAndResume('edit_and_continue')"
+        >
           保存修改
         </el-button>
         <el-button
           type="primary"
-          :disabled="!pendingReview || !canReview"
+          :disabled="!hasPendingReview || !canReview"
           :loading="reviewing"
           @click="submitReviewAndResume('approve')"
         >
@@ -901,6 +912,8 @@ const stageDefinitions = [
 ]
 const stageLabelMap = { pending: '等待', running: '进行中', done: '完成', failed: '失败', review: '待审核' }
 const reviewStageTitleMap = Object.fromEntries(hitlOptions.map((item) => [item.value, item.label]))
+const getReviewStageFromRecord = (review) =>
+  normalizeReviewStage(review?.review_stage || review?.review_node || review?.node)
 
 const statusText = computed(() => {
   if (lifecycleStatus.value === 'WAITING_HUMAN') return '工作流已暂停，请在对应节点完成 HITL 审核。'
@@ -929,14 +942,9 @@ const normalizeReviewStage = (stage) => {
   const mapped = stageDefinitions.find((item) => item.key === value)?.review
   return mapped || ''
 }
-const resolvedReviewStage = computed(() =>
-  normalizeReviewStage(
-    pendingReview.value?.review_stage ||
-    pendingReview.value?.review_node ||
-    pendingReview.value?.node ||
-    currentStage.value
-  )
-)
+const pendingReviewStage = computed(() => getReviewStageFromRecord(pendingReview.value))
+const hasPendingReview = computed(() => Boolean(pendingReview.value && pendingReviewStage.value))
+const resolvedReviewStage = computed(() => pendingReviewStage.value || normalizeReviewStage(currentStage.value))
 const reviewStageLabel = computed(() => reviewStageTitleMap[resolvedReviewStage.value] || resolvedReviewStage.value || '-')
 
 const activeStageKey = computed(() => {
@@ -1196,7 +1204,26 @@ const stages = computed(() => {
 
 const normalizeDatasetId = (result) => result?.dataset_id || result?.id || result?.dataset?.id
 const normalizeRows = (preview) => Array.isArray(preview) ? preview : Array.isArray(preview?.rows) ? preview.rows : []
-const normalizeTaskId = (task) => task?.task_id || task?.id
+const normalizeTaskId = (task) => {
+  const candidates = [
+    task?.task_id,
+    task?.id,
+    task?.task?.task_id,
+    task?.task?.id,
+    task?.data?.task_id,
+    task?.data?.id,
+    task?.result?.task_id,
+    task?.result?.id,
+    task?.payload?.task_id,
+    task?.payload?.id
+  ]
+  for (const candidate of candidates) {
+    if (candidate !== undefined && candidate !== null && String(candidate).trim()) {
+      return String(candidate).trim()
+    }
+  }
+  return ''
+}
 const PREVIEW_ROW_LIMIT = 20
 const PREVIEW_FILE_SLICE_BYTES = 1024 * 1024
 
@@ -1691,13 +1718,54 @@ const createAndRunTask = async () => {
   try {
     const hitlStages = canReview.value ? [...selectedHitlStages.value] : []
     const task = await createAgentTask({ dataset_id: Number(draftDatasetId.value), task_description: draftTaskDesc.value.trim(), hitl: hitlStages })
-    syncTaskState(task)
-    const nextTaskId = String(normalizeTaskId(task))
-    if (nextTaskId) taskRunModeMap.value[nextTaskId] = draftRunOffline.value
+    const nextTaskId = normalizeTaskId(task)
+    if (!nextTaskId) {
+      throw new Error('任务创建成功但未返回任务ID，请联系后端检查返回结构')
+    }
+    syncTaskState({ ...(task || {}), task_id: nextTaskId })
+    taskRunModeMap.value[nextTaskId] = draftRunOffline.value
     runOffline.value = draftRunOffline.value
     createDialogVisible.value = false
-    const runResult = await runAgentTask(currentTaskId.value, { offline: runOffline.value })
-    syncTaskState(runResult)
+
+    let startResult = null
+    let startError = null
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        startResult = await runAgentTask(nextTaskId, { offline: runOffline.value })
+        startError = null
+        break
+      } catch (error) {
+        startError = error
+        let latestTask = null
+        try {
+          latestTask = await fetchAgentTask(nextTaskId)
+          syncTaskState(latestTask)
+        } catch {
+          latestTask = null
+        }
+        const latestStatus = latestTask?.status || latestTask?.lifecycle_status || ''
+        if (['RUNNING', 'WAITING_HUMAN', 'COMPLETED'].includes(latestStatus)) {
+          startResult = latestTask
+          startError = null
+          break
+        }
+        if (latestStatus === 'READY_TO_RESUME') {
+          try {
+            startResult = await resumeAgentTask(nextTaskId, { offline: runOffline.value })
+            startError = null
+            break
+          } catch (resumeError) {
+            startError = resumeError
+          }
+        }
+        if (attempt < 1) {
+          await new Promise((resolve) => setTimeout(resolve, 600))
+        }
+      }
+    }
+    if (startError) throw startError
+    if (startResult) syncTaskState(startResult)
+
     await loadTasks(false, true)
     if (lifecycleStatus.value === 'WAITING_HUMAN') {
       await loadPendingReview(true)
@@ -1706,7 +1774,9 @@ const createAndRunTask = async () => {
     } else {
       startRunPolling()
     }
-  } catch (error) { ElMessage.error('创建启动失败') } finally { creating.value = false }
+  } catch (error) {
+    ElMessage.error(error?.message || '创建启动失败')
+  } finally { creating.value = false }
 }
 
 const runSelectedTask = async () => {
@@ -1853,9 +1923,10 @@ const loadPendingReview = async (silent = false) => {
 
     const reviewResponse = await fetchPendingReview(currentTaskId.value)
     const review = resolvePendingReviewRecord(reviewResponse)
+    const reviewStage = getReviewStageFromRecord(review)
+    if (!reviewStage) throw new Error('当前没有待审核节点')
     pendingReview.value = review || null
-    const reviewStage = normalizeReviewStage(review?.review_stage || review?.review_node || review?.node)
-    if (reviewStage) currentStage.value = reviewStage
+    currentStage.value = reviewStage
     reviewPayloadSnapshot.value = JSON.parse(JSON.stringify(pendingReview.value?.payload || pendingReview.value?.review_payload || pendingReview.value?.data || {}))
     editPayload.value = normalizeReviewPayload(pendingReview.value, reviewStage)
     if (reviewStage === 'code_review') {
@@ -1891,9 +1962,11 @@ const loadPendingReview = async (silent = false) => {
     }
   } catch (error) {
     pendingReview.value = null
+    reviewPayloadSnapshot.value = {}
+    editPayload.value = {}
     reviewCodeLoading.value = false
     reviewCodeLoadError.value = ''
-    if (!silent) ElMessage.warning('没有待审核内容')
+    if (!silent) ElMessage.warning(error?.message || '没有待审核内容')
   }
 }
 
@@ -1942,9 +2015,19 @@ const buildReviewPatch = (reviewStage) => {
 }
 
 const submitReviewAndResume = async (actionType) => {
+  if (!currentTaskId.value) {
+    ElMessage.warning('请先选择任务')
+    return
+  }
+  if (!hasPendingReview.value) {
+    ElMessage.warning('当前没有待审核节点，请刷新任务进度后重试')
+    await loadProgress(true)
+    return
+  }
+
   reviewing.value = true
   try {
-    const isEdit = actionType === 'edit_and_continue'
+    const shouldAutoResume = actionType === 'approve' || actionType === 'edit_and_continue'
     const resolvedPatch = (() => {
       if (patchText.value.trim()) {
         try {
@@ -1960,11 +2043,11 @@ const submitReviewAndResume = async (actionType) => {
       action: actionType,
       patch: resolvedPatch,
       comment: reviewComment.value.trim(),
-      auto_resume: actionType === 'approve', 
+      auto_resume: shouldAutoResume, 
       offline: runOffline.value
     })
 
-    if (actionType === 'approve') {
+    if (shouldAutoResume) {
       reviewDialogVisible.value = false
       pendingReview.value = null
       
@@ -1978,8 +2061,15 @@ const submitReviewAndResume = async (actionType) => {
       }
       startRunPolling()
     } else {
-      ElMessage.success('修改已临时保存到后端')
-      await loadPendingReview(true)
+      await loadProgress(true)
+      if (lifecycleStatus.value === 'WAITING_HUMAN') {
+        await loadPendingReview(true)
+        ElMessage.success('修改已保存')
+      } else {
+        reviewDialogVisible.value = false
+        pendingReview.value = null
+        ElMessage.success('修改已保存，任务可继续运行')
+      }
     }
   } catch (error) { ElMessage.error(error.message || '审核提交失败') } finally { reviewing.value = false }
 }

@@ -36,3 +36,8 @@ Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://
 
 ### 2026.5.26
 修改了个人中心部分无法正常显示API额度的bug
+
+### 2026.6.1
+修复了bug：
+人机协同创建任务进入 Agent Manager 审核后，点击“保存修改”会清空当前配置；随后“确认继续”提示“当前没有待审核节点”；
+人机协同在 Operation Agent 审核阶段，点击“保存修改”或“确认继续”提示“当前没有待审核节点”，任务无法继续
