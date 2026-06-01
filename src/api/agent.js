@@ -218,6 +218,7 @@ export const downloadAgentReportMarkdown = async (taskId) => {
     handleAgentError(error, 'Markdown 报告下载失败')
   }
 }
+
 export const fetchAgentCode = async (taskId) => {
   try {
     const response = await agentApi.get(`/api/agent/tasks/${taskId}/code`)
@@ -235,6 +236,7 @@ export const updateAgentCode = async (taskId, payload) => {
     handleAgentError(error, '代码保存失败')
   }
 }
+
 export const fetchAgentCodeFile = async (codePath) => {
   try {
     const normalizedPath = String(codePath || '').trim().replace(/^\/+/, '')
@@ -300,6 +302,7 @@ export const fetchAgentWorkflows = async () => {
     handleAgentError(error, '工作流列表加载失败')
   }
 }
+
 /* ==========================================
    管理员专属 Agent 接口 (仅 ADMIN 可访问)
    ========================================== */
@@ -334,3 +337,12 @@ export const fetchAdminAgentResourceSummary = async () => {
   }
 }
 
+/**
+ * 下载 Agent 数据集原始 CSV 文件
+ * @param {number|string} datasetId 数据集ID
+ */
+export const downloadAgentDataset = (datasetId) => {
+  return agentApi.get(`/api/agent/datasets/${datasetId}/download`, {
+    responseType: 'blob'
+  })
+}
