@@ -56,39 +56,43 @@
         </el-form-item>
       </el-form>
 
-      <el-alert v-if="errorMessage" type="error" :closable="false" class="state-alert" :title="errorMessage" />
+<el-alert v-if="errorMessage" type="error" :closable="false" class="state-alert" :title="errorMessage" />
+<el-table :data="pagedRows" border style="width: 100%" v-loading="loading">
+        <template #empty>
+          <el-empty description="暂无工作流审核数据" />
+        </template>
 
-      <el-table :data="pagedRows" border style="width: 100%" v-loading="loading">
         <el-table-column prop="title" label="工作流标题" min-width="220" show-overflow-tooltip />
-        <el-table-column prop="creator" label="创建者" width="160" show-overflow-tooltip />
-        <el-table-column prop="category" label="分类" width="140" show-overflow-tooltip />
-        <el-table-column label="审核状态" width="130">
+        <el-table-column prop="creator" label="创建者" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="category" label="分类" min-width="140" show-overflow-tooltip />
+        <el-table-column label="审核状态" min-width="120">
           <template #default="scope">
             <el-tag :type="resolveStatusTag(scope.row.reviewStatus)">{{ resolveStatusLabel(scope.row.reviewStatus) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="公开状态" width="120">
+        <el-table-column label="公开状态" min-width="100">
           <template #default="scope">
             <el-tag :type="scope.row.isPublic ? 'success' : 'info'">{{ scope.row.isPublic ? '公开' : '私有' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="标签" min-width="180" show-overflow-tooltip>
+        <el-table-column label="标签" min-width="160" show-overflow-tooltip>
           <template #default="scope">{{ scope.row.tags.join('，') || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="createdAt" label="创建时间" width="180" />
-        <el-table-column prop="rejectionReason" label="驳回原因" min-width="180" show-overflow-tooltip />
-        <el-table-column label="操作" width="340" fixed="right">
+        <el-table-column prop="createdAt" label="创建时间" min-width="170" />
+        <el-table-column prop="rejectionReason" label="驳回原因" min-width="160" show-overflow-tooltip />
+        
+        <el-table-column label="操作" width="280">
           <template #default="scope">
-            <el-button size="small" type="primary" link @click="openDetail(scope.row)">详情</el-button>
-            <el-button size="small" type="success" link :disabled="scope.row.reviewStatus === 'APPROVED'" @click="approve(scope.row)">通过</el-button>
-            <el-button size="small" type="danger" link @click="reject(scope.row)">驳回</el-button>
-            <el-button size="small" type="warning" link @click="takeDown(scope.row)">下架</el-button>
-            <el-button size="small" type="info" link @click="openEdit(scope.row)">修改</el-button>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+              <el-button size="small" type="primary" link style="margin-left: 0;" @click="openDetail(scope.row)">详情</el-button>
+              <el-button size="small" type="success" link style="margin-left: 0;" :disabled="scope.row.reviewStatus === 'APPROVED'" @click="approve(scope.row)">通过</el-button>
+              <el-button size="small" type="danger" link style="margin-left: 0;" @click="reject(scope.row)">驳回</el-button>
+              <el-button size="small" type="warning" link style="margin-left: 0;" @click="takeDown(scope.row)">下架</el-button>
+              <el-button size="small" type="info" link style="margin-left: 0;" @click="openEdit(scope.row)">修改</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
-
-      <el-empty v-if="!loading && !filteredRows.length" description="暂无工作流审核数据" />
 
       <div class="pagination-wrapper" v-if="filteredRows.length > pageSize">
         <el-pagination
@@ -294,7 +298,9 @@ const loadWorkflows = async () => {
 
   try {
     const list = await fetchAdminWorkflows(resolveQueryStatus())
-    rows.value = (Array.isArray(list) ? list : []).map(normalizeRow).filter((item) => item.id !== undefined && item.id !== null)
+    // 修复004：兼容后端返回的分页包裹格式
+    const rawItems = Array.isArray(list) ? list : (list?.items || list?.list || list?.data?.items || list?.data?.list || [])
+    rows.value = rawItems.map(normalizeRow).filter((item) => item.id !== undefined && item.id !== null)
     page.value = 1
   } catch (error) {
     rows.value = []
