@@ -124,12 +124,9 @@
         <el-button v-if="isDataset && datasetDetail?.file_url" @click="openExternal(datasetDetail.file_url)">
           <el-icon><View /></el-icon> 浏览器预览
         </el-button>
-        <el-button v-if="isDataset && datasetDetail?.file_url" type="primary" @click="downloadDatasetFile">
-          <el-icon><Download /></el-icon> 下载数据集
+        <el-button v-if="isDataset" type="primary" :loading="datasetDownloading" @click="downloadDatasetFile">
+          <el-icon><Download /></el-icon> 下载原始数据集
         </el-button>
-        <el-tooltip v-if="isDataset && !datasetDetail?.file_url" content="当前资源未返回物理文件地址" placement="top">
-          <el-button disabled>暂无下载地址</el-button>
-        </el-tooltip>
 
         <el-button v-if="isModel && modelDetail?.resource_url" @click="openExternal(modelDetail.resource_url)">查看模型资源</el-button>
         <el-button v-if="isModel && modelDetail?.resource_url" type="primary" @click="openExternal(modelDetail.resource_url)">使用模型</el-button>
@@ -156,14 +153,14 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../store/user'
-// 确保这些图标已经在项目中全局引入了，如果没有引，可以去掉模板里的 <el-icon> 标签
 import { ArrowLeft, Refresh, DocumentCopy, Download, View, DataLine, Cpu, Connection, CopyDocument } from '@element-plus/icons-vue'
 
 import { fetchCommunityResourceDetail } from '../api/community'
 import { fetchDatasetDetail } from '../api/dataset'
 import { fetchModelDetail } from '../api/model'
 import { fetchWorkflowDetail, forkWorkflow } from '../api/workflow'
-import { fetchDatasetPreview } from '../api/agent'
+// 【引入下载 API】
+import { fetchDatasetPreview, downloadAgentDataset } from '../api/agent'
 
 const route = useRoute()
 const router = useRouter()
@@ -178,12 +175,12 @@ const workflowDetail = ref(null)
 const datasetPreviewRows = ref([])
 const datasetPreviewLoading = ref(false)
 const datasetPreviewError = ref('')
+const datasetDownloading = ref(false) // 新增下载 Loading 状态
 
 const forkSubmitting = ref(false)
 const forkApiMissing = ref(false)
-const workflowPreviewTab = ref('code') // 默认优先展示代码
+const workflowPreviewTab = ref('code')
 
-// [保留你原本的所有计算属性和格式化函数，一字未改...]
 const normalizeType = (value) => {
   const raw = String(value || '').trim().toUpperCase()
   if (['DATASET', 'DATASETS'].includes(raw)) return 'DATASET'
@@ -322,29 +319,50 @@ const openExternal = (url) => {
   if (target) window.open(target, '_blank', 'noopener,noreferrer')
 }
 
-const downloadDatasetFile = () => {
-  const url = String(datasetDetail.value?.file_url || '').trim()
-  if (!url) {
-    ElMessage.warning('当前资源未返回可下载地址')
+// 【修复 011：修改为请求后端文件流下载 CSV】
+const downloadDatasetFile = async () => {
+  if (!resourceId.value) {
+    ElMessage.warning('无法获取有效的数据集 ID')
     return
   }
-  const link = document.createElement('a')
-  link.href = url
-  link.target = '_blank'
-  link.download = ''
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
+  
+  datasetDownloading.value = true
+  try {
+    ElMessage.info('正在准备下载，请稍候...')
+    // 发起下载请求，获取 blob 流
+    const response = await downloadAgentDataset(resourceId.value)
+    
+    // 兼容不同的 Axios 封装返回格式
+    const blobData = response.data ? response.data : response
+    const blob = new Blob([blobData], { type: 'text/csv;charset=utf-8' })
+    
+    // 创建下载链接并触发点击
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    // 生成带 ID 的下载文件名
+    link.setAttribute('download', `dataset_${resourceId.value}.csv`) 
+    
+    document.body.appendChild(link)
+    link.click()
+    
+    // 释放内存和移除 DOM 节点
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    console.error('下载报错:', error)
+    ElMessage.error(error.message || '数据集下载失败，可能是权限不足或文件不存在')
+  } finally {
+    datasetDownloading.value = false
+  }
 }
 
-// === 新增：一键复制代码到剪贴板 ===
 const copyToClipboard = async (text) => {
   if (!text) return
   try {
     await navigator.clipboard.writeText(text)
     ElMessage.success('复制成功！可以直接粘贴了。')
   } catch (err) {
-    // 降级兼容老浏览器
     const input = document.createElement('textarea')
     input.value = text
     document.body.appendChild(input)
@@ -425,14 +443,12 @@ const handleForkWorkflow = async () => {
     const result = await forkWorkflow(resourceId.value)
     const targetId = resolveForkTargetId(result)
     
-    // === 核心修改：Fork 出的工作流是私有的，必须跳转到个人中心，而非社区！===
     ElMessage({
       message: '🎉 Fork 成功！新工作流已保存至您的个人中心。',
       type: 'success',
       duration: 3000
     })
     
-    // 如果你的个人中心路由不叫 /user，请把这里改成对应的路由名称（如 /user-center）
     router.push('/user') 
     
   } catch (error) {
