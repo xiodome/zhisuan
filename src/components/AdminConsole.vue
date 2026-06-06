@@ -178,9 +178,9 @@
                 <el-option label="全部接口" value="" />
                 <el-option
                   v-for="item in endpointOptions"
-                  :key="item"
-                  :label="item"
-                  :value="item"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
                 />
               </el-select>
             </el-form-item>
@@ -288,9 +288,9 @@
                 <el-option label="全部分类" value="" />
                 <el-option
                   v-for="item in datasetCategoryOptions"
-                  :key="item"
-                  :label="item"
-                  :value="item"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
                 />
               </el-select>
             </el-form-item>
@@ -444,9 +444,9 @@
                 <el-option label="全部分类" value="" />
                 <el-option
                   v-for="item in modelCategoryOptions"
-                  :key="item"
-                  :label="item"
-                  :value="item"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
                 />
               </el-select>
             </el-form-item>
@@ -692,7 +692,14 @@ const roleTagMap = {
   ZERO_BASIS: 'info'
 }
 
-const endpointOptions = ['/api/chat/completions', '/api/embeddings', '/api/images/generations']
+const endpointOptions = [
+  { label: 'Agent LLM - 需求解析', value: 'agent_llm_manager_parse' },
+  { label: 'Agent LLM - 数据分析', value: 'agent_llm_data_analysis' },
+  { label: 'Agent LLM - 模型规划', value: 'agent_llm_model_plan' },
+  { label: 'Agent LLM - 报告生成', value: 'agent_llm_operation_report' },
+  { label: '任务执行', value: 'task_execution' },
+  { label: '文件上传', value: 'file_upload' }
+]
 const datasetCategoryOptions = ['农业', '医疗', '交通', '遥感', '教育']
 const datasetTagOptions = ['图像', '文本', '时序', '病虫害', '诊断', '公开数据', '标注']
 const modelCategoryOptions = ['分类', '回归']

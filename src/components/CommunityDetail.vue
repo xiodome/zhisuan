@@ -128,8 +128,8 @@
           <el-icon><Download /></el-icon> 下载原始数据集
         </el-button>
 
-        <el-button v-if="isModel && modelDetail?.resource_url" @click="openExternal(modelDetail.resource_url)">查看模型资源</el-button>
-        <el-button v-if="isModel && modelDetail?.resource_url" type="primary" @click="openExternal(modelDetail.resource_url)">使用模型</el-button>
+        <el-button v-if="isModel && modelDetail?.resource_url && !isPlaceholderUrl(modelDetail.resource_url)" @click="openExternal(modelDetail.resource_url)">查看模型资源</el-button>
+        <el-button v-if="isModel && modelDetail?.resource_url && !isPlaceholderUrl(modelDetail.resource_url)" type="primary" @click="openExternal(modelDetail.resource_url)">使用模型</el-button>
 
         <el-button
           v-if="isWorkflow"
@@ -314,9 +314,17 @@ const countText = (value) => {
   return Number.isNaN(num) ? '-' : num.toLocaleString()
 }
 
+
+const isPlaceholderUrl = (url) => {
+  const target = String(url || '').trim().toLowerCase()
+  return /(^https?:\/\/)?(www\.)?example\.(com|org|net)(\/|$)/i.test(target)
+}
+
 const openExternal = (url) => {
   const target = String(url || '').trim()
-  if (target) window.open(target, '_blank', 'noopener,noreferrer')
+  if (!target) return
+  if (isPlaceholderUrl(target)) return
+  window.open(target, '_blank', 'noopener,noreferrer')
 }
 
 // 【修复 011：修改为请求后端文件流下载 CSV】

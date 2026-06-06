@@ -2014,21 +2014,13 @@ const buildReviewPatch = (reviewStage) => {
   return editPayload.value
 }
 
-const submitReviewAndResume = async (actionType) => {
-  if (!currentTaskId.value) {
-    ElMessage.warning('请先选择任务')
-    return
-  }
-  if (!hasPendingReview.value) {
-    ElMessage.warning('当前没有待审核节点，请刷新任务进度后重试')
-    await loadProgress(true)
-    return
-  }
 
+const submitReviewAndResume = async (actionType) => {
   reviewing.value = true
   try {
-    const shouldAutoResume = actionType === 'approve' || actionType === 'edit_and_continue'
+    const isEdit = actionType === 'edit_and_continue'
     const resolvedPatch = (() => {
+      if (!isEdit) return null
       if (patchText.value.trim()) {
         try {
           return JSON.parse(patchText.value)
@@ -2038,41 +2030,20 @@ const submitReviewAndResume = async (actionType) => {
       }
       return buildReviewPatch(resolvedReviewStage.value)
     })()
-
     await submitAgentReview(currentTaskId.value, {
       action: actionType,
       patch: resolvedPatch,
       comment: reviewComment.value.trim(),
-      auto_resume: shouldAutoResume, 
+      auto_resume: true,
       offline: runOffline.value
     })
-
-    if (shouldAutoResume) {
-      reviewDialogVisible.value = false
-      pendingReview.value = null
-      
-      try {
-        const result = await resumeAgentTask(currentTaskId.value, { offline: runOffline.value })
-        syncTaskState(result)
-      } catch (e) {
-        if (!e.message.includes('没有待审核') && !e.message.includes('not in waiting')) {
-          console.warn('Resume warning:', e.message)
-        }
-      }
-      startRunPolling()
-    } else {
-      await loadProgress(true)
-      if (lifecycleStatus.value === 'WAITING_HUMAN') {
-        await loadPendingReview(true)
-        ElMessage.success('修改已保存')
-      } else {
-        reviewDialogVisible.value = false
-        pendingReview.value = null
-        ElMessage.success('修改已保存，任务可继续运行')
-      }
-    }
+    reviewDialogVisible.value = false
+    pendingReview.value = null
+    await selectTask(currentTaskId.value)
+    startRunPolling()
   } catch (error) { ElMessage.error(error.message || '审核提交失败') } finally { reviewing.value = false }
 }
+
 
 // ================= 报告与代码 =================
 const loadReport = async () => {

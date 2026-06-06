@@ -47,6 +47,24 @@ export async function fetchCommunityResourceDetail(type, resourceId) {
   }
 }
 
+export async function fetchCommunityDatasetPreview(datasetId) {
+  try {
+    const response = await api.get(`/api/community/datasets/${datasetId}/preview`)
+    return unwrapResponse(response)
+  } catch (error) {
+    throw buildApiError(error, '加载公开数据集预览失败')
+  }
+}
+
+export async function downloadCommunityDataset(datasetId) {
+  try {
+    const response = await api.get(`/api/community/datasets/${datasetId}/download`, { responseType: 'blob' })
+    return response.data
+  } catch (error) {
+    throw buildApiError(error, '下载公开数据集失败')
+  }
+}
+
 export async function fetchCommunityComments(type, resourceId) {
   try {
     const response = await api.get('/api/community/comments', {

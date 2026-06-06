@@ -41,3 +41,9 @@ Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://
 修复了bug：
 人机协同创建任务进入 Agent Manager 审核后，点击“保存修改”会清空当前配置；随后“确认继续”提示“当前没有待审核节点”；
 人机协同在 Operation Agent 审核阶段，点击“保存修改”或“确认继续”提示“当前没有待审核节点”，任务无法继续
+
+### 2026.6.6
+修复了bug：
+人机协同到模型出现 Agent 任务恢复失败；
+社区模型点击查看详情弹出 Example Domain(直接删除了按钮)
+admin 调用消耗记录无内容
