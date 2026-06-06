@@ -16,6 +16,10 @@ api.interceptors.request.use((config) => {
   } catch (error) {
     // Ignore store errors to avoid blocking requests.
   }
+  if (!config.headers.Authorization) {
+    const token = localStorage.getItem('token')
+    if (token) config.headers.Authorization = `Bearer ${token}`
+  }
   return config
 })
 

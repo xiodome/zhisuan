@@ -468,7 +468,7 @@
 
             <div v-if="reportFeatureImportance.length" class="report-section feature-importance-section">
               <span class="section-title">特征重要性</span>
-              <v-chart class="chart" :option="featureImportanceChartOption" autoresize />
+              <v-chart class="chart" :style="featureImportanceChartStyle" :option="featureImportanceChartOption" autoresize />
             </div>
 
             <div class="report-block">
@@ -933,7 +933,7 @@ const shareWorkflowForm = ref({
   tags: ''
 })
 const currentReport = ref(null)
-const runOffline = ref(true)
+const runOffline = ref(false)
 const taskRunModeMap = ref({})
 const loadingTasks = ref(false)
 const loadingProgress = ref(false)
@@ -952,7 +952,7 @@ const draftDatasetId = ref(null)
 const draftDatasetName = ref('')
 const draftPreviewRows = ref([])
 const draftPreviewError = ref('')
-const draftRunOffline = ref(true)
+const draftRunOffline = ref(false)
 const uploadingDataset = ref(false)
 const uploadProgress = ref(0)
 const selectedHitlStages = ref([])
@@ -1147,7 +1147,7 @@ const featureImportanceChartOption = computed(() => {
   const borderColor = getThemeCssVar('--zs-border', '#d0d7e2')
   return {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    grid: { left: 120, right: 28, top: 18, bottom: 14, containLabel: false },
+    grid: { left: 12, right: 28, top: 18, bottom: 14, containLabel: true },
     xAxis: {
       type: 'value',
       boundaryGap: [0, 0.01],
@@ -1160,7 +1160,7 @@ const featureImportanceChartOption = computed(() => {
       data: data.map((item) => item.feature),
       axisLabel: {
         color: textColor,
-        width: 160,
+        width: 220,
         overflow: 'truncate'
       },
       axisLine: { lineStyle: { color: borderColor } }
@@ -1174,6 +1174,10 @@ const featureImportanceChartOption = computed(() => {
     ]
   }
 })
+
+const featureImportanceChartStyle = computed(() => ({
+  height: `${Math.max(320, reportFeatureImportance.value.length * 34 + 80)}px`
+}))
 
 const reportData = computed(() => currentReport.value?.data_analysis || currentReport.value?.data_result || {})
 const reportModelTraining = computed(() => currentReport.value?.model_training || {})
@@ -1381,7 +1385,21 @@ const parseCsvPreviewFromText = (text, maxRows = PREVIEW_ROW_LIMIT) => {
 
 const readCsvPreviewRows = async (file) => {
   const fileChunk = typeof file.slice === 'function' ? file.slice(0, PREVIEW_FILE_SLICE_BYTES) : file
-  const text = await (typeof fileChunk?.text === 'function' ? fileChunk.text() : Promise.resolve(''))
+  const buffer = await (typeof fileChunk?.arrayBuffer === 'function' ? fileChunk.arrayBuffer() : Promise.resolve(null))
+  const decodeCsvPreviewText = () => {
+    if (!buffer) return ''
+    const encodings = ['utf-8', 'gb18030', 'gbk']
+    for (const encoding of encodings) {
+      try {
+        const decoded = new TextDecoder(encoding, { fatal: false }).decode(buffer)
+        if (decoded && !decoded.includes('\uFFFD')) return decoded
+      } catch {
+        // 浏览器不支持该编码时尝试下一个。
+      }
+    }
+    return new TextDecoder('utf-8', { fatal: false }).decode(buffer)
+  }
+  const text = buffer ? decodeCsvPreviewText() : await (typeof fileChunk?.text === 'function' ? fileChunk.text() : Promise.resolve(''))
   const rows = parseCsvPreviewFromText(text, PREVIEW_ROW_LIMIT)
   if (!rows.length) throw new Error('未解析到可预览的数据行，请检查 CSV 是否包含表头与数据。')
   return rows
@@ -2147,7 +2165,8 @@ const openReviewDialog = async () => {
 
 const buildReviewPatch = (reviewStage) => {
   if (reviewStage === 'parse_review') {
-    const taskType = String(editPayload.value?.task_type || '').trim() || 'classification'
+    const rawTaskType = String(editPayload.value?.task_type || '').trim().toUpperCase()
+    const taskType = rawTaskType.includes('REG') || rawTaskType.includes('回归') ? 'REGRESSION' : 'CLASSIFICATION'
     const targetColumn = String(editPayload.value?.target_column || '').trim()
     const featureColumns = normalizeColumnList(editPayload.value?.feature_columns)
     if (targetColumn && featureColumns.includes(targetColumn)) {
@@ -2201,19 +2220,13 @@ const submitReviewAndResume = async (actionType) => {
       action: actionType,
       patch: resolvedPatch,
       comment: reviewComment.value.trim(),
-      auto_resume: false,
+      auto_resume: true,
       offline: runOffline.value
     })
-    if (actionType === 'approve') {
-      reviewDialogVisible.value = false
-      pendingReview.value = null
-      const result = await resumeAgentTask(currentTaskId.value, { offline: runOffline.value })
-      syncTaskState(result)
-      startRunPolling()
-    } else {
-      ElMessage.success('修改已临时保存到后端')
-      await loadPendingReview(true)
-    }
+    reviewDialogVisible.value = false
+    pendingReview.value = null
+    await selectTask(currentTaskId.value)
+    startRunPolling()
   } catch (error) { ElMessage.error(error.message || '审核提交失败') } finally { reviewing.value = false }
 }
 
@@ -2424,6 +2437,17 @@ const downloadReportPDF = async () => {
       background: none !important;
       box-shadow: none !important;
       border: 1px solid #dcdfe6 !important;
+    }
+    #report-content .feature-importance-section {
+      height: auto !important;
+      min-height: 360px !important;
+      overflow: visible !important;
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+    }
+    #report-content .feature-importance-section .chart {
+      min-height: 360px !important;
+      overflow: visible !important;
     }
     /* 强制 Element 表格在截图时变为白底黑字 */
     #report-content .el-table,
@@ -3138,13 +3162,13 @@ onBeforeUnmount(() => {
   line-height: 1.2;
 }
 .feature-importance-section {
-  height: 350px;
-  overflow: hidden;
+  min-height: 360px;
+  overflow: visible;
 }
 .section-title {
   margin-bottom: 8px;
 }
-.chart { width: 100%; height: 100%; min-height: 300px; }
+.chart { width: 100%; min-height: 320px; }
 .report-block {
   margin-top: 10px;
   padding: 12px;

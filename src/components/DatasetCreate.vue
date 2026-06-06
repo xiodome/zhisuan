@@ -170,7 +170,7 @@ const handleUpload = async ({ file }) => {
   uploading.value = true
   try {
     const result = await uploadAgentDataset(file)
-    form.file_url = String(readFirst(result, ['file_url', 'url', 'dataset_url']) || form.file_url || '')
+    form.file_url = String(readFirst(result, ['file_url', 'file_path', 'path', 'url', 'dataset_url']) || form.file_url || '')
     const fileSize = readFirst(result, ['file_size', 'size'])
     const rowCount = readFirst(result, ['row_count', 'rows', 'record_count'])
     form.file_size = fileSize !== null ? Number(fileSize) : form.file_size

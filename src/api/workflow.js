@@ -39,7 +39,11 @@ export async function forkWorkflow(workflowId) {
 // 管理员获取所有工作流列表 (包含 PENDING / APPROVED)
 export async function fetchAdminWorkflows(params = {}) {
   try {
-    const response = await api.get('/api/agent/admin/workflows', { params })
+    const requestParams = typeof params === 'string' ? { status: params || undefined } : { ...params }
+    Object.keys(requestParams).forEach((key) => {
+      if (requestParams[key] === '' || requestParams[key] === null || requestParams[key] === undefined) delete requestParams[key]
+    })
+    const response = await api.get('/api/agent/admin/workflows', { params: requestParams })
     return unwrapResponse(response)
   } catch (error) {
     throw buildApiError(error, '加载管理员工作流列表失败')

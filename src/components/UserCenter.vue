@@ -362,10 +362,13 @@ const accountStatus = computed(() => {
 // Quota 逻辑
 const quotaInfo = computed(() => {
   const source = userInfo.value || {}
-  const tokenQuota = readFirstNumeric(source, ['tokenQuota', 'quota.tokenQuota'])
-  const tokenLimit = readFirstNumeric(source, ['tokenLimit', 'quota.tokenLimit'])
-  const tokenUsed = readFirstNumeric(source, ['tokenUsed', 'quota.tokenUsed'])
-  const warningPercent = readFirstNumeric(source, ['warningThreshold', 'quota.warningThreshold'])
+  const tokenQuota = readFirstNumeric(source, ['tokenQuota', 'api_token_limit', 'quota.tokenQuota', 'quota.api_token_limit'])
+  const tokenLimit = readFirstNumeric(source, ['tokenLimit', 'api_token_limit', 'quota.tokenLimit', 'quota.api_token_limit'])
+  const tokenUsed = readFirstNumeric(source, ['tokenUsed', 'api_token_used', 'quota.tokenUsed', 'quota.api_token_used'])
+  const warningValue = readFirstNumeric(source, ['warningThreshold', 'api_token_warning_threshold', 'quota.warningThreshold', 'quota.api_token_warning_threshold'])
+  const warningPercent = warningValue !== null && Number(tokenQuota || 0) > 0 && warningValue > 100
+    ? (warningValue / Number(tokenQuota || 1)) * 100
+    : warningValue
 
   return {
     tokenQuota: Number(tokenQuota || 0),

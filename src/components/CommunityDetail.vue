@@ -159,11 +159,10 @@ import { useUserStore } from '../store/user'
 // 确保这些图标已经在项目中全局引入了，如果没有引，可以去掉模板里的 <el-icon> 标签
 import { ArrowLeft, Refresh, DocumentCopy, Download, View, DataLine, Cpu, Connection, CopyDocument } from '@element-plus/icons-vue'
 
-import { fetchCommunityResourceDetail } from '../api/community'
+import { downloadCommunityDataset, fetchCommunityDatasetPreview, fetchCommunityResourceDetail } from '../api/community'
 import { fetchDatasetDetail } from '../api/dataset'
 import { fetchModelDetail } from '../api/model'
 import { fetchWorkflowDetail, forkWorkflow } from '../api/workflow'
-import { fetchDatasetPreview } from '../api/agent'
 
 const route = useRoute()
 const router = useRouter()
@@ -317,24 +316,44 @@ const countText = (value) => {
   return Number.isNaN(num) ? '-' : num.toLocaleString()
 }
 
-const openExternal = (url) => {
-  const target = String(url || '').trim()
-  if (target) window.open(target, '_blank', 'noopener,noreferrer')
+const isPlaceholderUrl = (url) => {
+  const target = String(url || '').trim().toLowerCase()
+  return /(^https?:\/\/)?(www\.)?example\.(com|org|net)(\/|$)/i.test(target)
 }
 
-const downloadDatasetFile = () => {
-  const url = String(datasetDetail.value?.file_url || '').trim()
-  if (!url) {
+const openExternal = (url) => {
+  const target = String(url || '').trim()
+  if (!target) return
+  if (isPlaceholderUrl(target)) {
+    ElMessage.warning('该资源地址是示例占位链接，暂不能打开')
+    return
+  }
+  window.open(target, '_blank', 'noopener,noreferrer')
+}
+
+const downloadDatasetFile = async () => {
+  if (!resourceId.value) {
     ElMessage.warning('当前资源未返回可下载地址')
     return
   }
-  const link = document.createElement('a')
-  link.href = url
-  link.target = '_blank'
-  link.download = ''
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
+  const rawUrl = String(datasetDetail.value?.file_url || '').trim()
+  if (/^https?:\/\//i.test(rawUrl)) {
+    openExternal(rawUrl)
+    return
+  }
+  try {
+    const blob = await downloadCommunityDataset(resourceId.value)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${titleText.value || `dataset_${resourceId.value}`}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  } catch (error) {
+    ElMessage.error(error.message || '下载数据集失败')
+  }
 }
 
 // === 新增：一键复制代码到剪贴板 ===
@@ -368,7 +387,7 @@ const loadDatasetPreview = async () => {
   datasetPreviewLoading.value = true
   datasetPreviewError.value = ''
   try {
-    const payload = await fetchDatasetPreview(resourceId.value)
+    const payload = await fetchCommunityDatasetPreview(resourceId.value)
     datasetPreviewRows.value = normalizePreviewRows(payload).slice(0, 20)
     if (!datasetPreviewRows.value.length) datasetPreviewError.value = '当前接口未返回可展示的预览数据'
   } catch (error) {
