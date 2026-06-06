@@ -1,4 +1,4 @@
-import axios from 'axios'
+﻿import axios from 'axios'
 import { API_BASE_URL } from '../config/api'
 import { useUserStore } from '../store/user'
 
@@ -13,72 +13,131 @@ api.interceptors.request.use((config) => {
     if (store.token) {
       config.headers.Authorization = `Bearer ${store.token}`
     }
-  } catch (e) { }
+  } catch (error) {
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+  }
   return config
 })
 
-// 组件需要的导出变量
 export const isUsingMockData = false
 
 const unwrap = (response) => (response.data?.data !== undefined ? response.data.data : response.data)
 
-/**
- * 状态映射：前端字符串 (PENDING/APPROVED/REJECTED) -> 后端 Integer (0/1/2)
- */
+const parseTags = (value) => {
+  if (Array.isArray(value)) return value.filter(Boolean)
+  const raw = String(value || '').trim()
+  if (!raw) return []
+  return raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
 const mapStatusToBackend = (statusStr) => {
   if (statusStr === 'APPROVED' || statusStr === 'SUCCESS') return 1
   if (statusStr === 'REJECTED' || statusStr === 'FAIL') return 2
-  return 0 // PENDING
+  return 0
 }
 
-/* ========================== 1. API 额度管理 ========================== */
+const toNormalizedList = (payload) => {
+  if (Array.isArray(payload)) return payload
+  return payload?.list || payload?.items || []
+}
 
-export async function fetchQuotaUserList() {
-  try {
-    const response = await api.get('/api/quota/admin/users', { params: { page: 1, page_size: 100 } })
-    const data = unwrap(response) || {}
-    
-    // 安全提取数组，兼容后端返回纯数组或分页对象
-    const list = Array.isArray(data) ? data : (data.list || data.items || [])
-    
-    return {
-      list: list.map(item => {
-        const limit = item.api_token_limit || 1
-        const threshold = item.api_token_warning_threshold || 0
-        
-        let displayPercent = threshold > 1 ? (threshold / limit) * 100 : threshold * 100
-        if (displayPercent > 100) displayPercent = 100
+const normalizeQuotaUser = (item) => {
+  const limit = Number(item.api_token_limit || 0)
+  const used = Number(item.api_token_used || 0)
+  const warningRaw = Number(item.api_token_warning_threshold || 0)
 
-        // 【终极修复】：为 UI 组件提供全套字段别名，防止数据丢失和逻辑误判
-        return {
-          id: item.id,                      // 兼容部分组件需要的 id
-          userId: item.id,                  // 兼容部分组件需要的 userId
-          username: item.username,
-          role: item.role,
-          tokenQuota: item.api_token_limit, // 对应 "Token 额度"
-          tokenLimit: item.api_token_limit, // 修复 "使用上限" 为 0 的问题
-          limit: item.api_token_limit,      // 备用上限字段
-          tokenUsed: item.api_token_used,   // 对应 "已用 Token"
-          used: item.api_token_used,        // 备用已用字段
-          warningThreshold: Math.round(displayPercent),
-          status: item.status === 1 ? 'enabled' : 'disabled',
-          updatedAt: item.created_at?.replace('T', ' ').substring(0, 19) || '-'
-        }
-      }),
-      // 安全提取总条数
-      total: data.total || list.length
+  let displayPercent = warningRaw
+  if (warningRaw <= 1 && warningRaw >= 0) {
+    displayPercent = warningRaw * 100
+  } else if (limit > 0 && warningRaw > 1) {
+    displayPercent = (warningRaw / limit) * 100
+  }
+  displayPercent = Math.max(0, Math.min(100, Math.round(displayPercent || 0)))
+
+  return {
+    id: item.id,
+    userId: item.id,
+    username: item.username,
+    role: item.role,
+    tokenQuota: limit,
+    tokenLimit: limit,
+    limit,
+    tokenUsed: used,
+    used,
+    warningThreshold: displayPercent,
+    status: Number(item.status) === 1 ? 'enabled' : 'disabled',
+    updatedAt: item.created_at?.replace('T', ' ').substring(0, 19) || '-'
+  }
+}
+
+const filterQuotaUsers = (list, filters = {}) => {
+  const keyword = String(filters.username || '').trim().toLowerCase()
+  const role = String(filters.role || '').trim().toUpperCase()
+  const status = String(filters.status || '').trim().toLowerCase()
+
+  return list.filter((item) => {
+    if (keyword && !String(item.username || '').toLowerCase().includes(keyword)) {
+      return false
     }
-  } catch (error) { throw error }
+
+    if (role && String(item.role || '').toUpperCase() !== role) {
+      return false
+    }
+
+    if (status && String(item.status || '').toLowerCase() !== status) {
+      return false
+    }
+
+    return true
+  })
+}
+
+const fetchAllQuotaUsers = async () => {
+  // Swagger: /api/quota/admin/users page_size <= 100
+  const pageSize = 100
+  const maxPages = 20
+  let page = 1
+  let total = Number.POSITIVE_INFINITY
+  const merged = []
+
+  while (page <= maxPages && merged.length < total) {
+    const response = await api.get('/api/quota/admin/users', { params: { page, page_size: pageSize } })
+    const data = unwrap(response) || {}
+    const batch = toNormalizedList(data)
+    total = Number(data.total || merged.length + batch.length)
+
+    if (!batch.length) break
+    merged.push(...batch)
+
+    if (batch.length < pageSize) break
+    page += 1
+  }
+
+  return merged
+}
+
+export async function fetchQuotaUserList(filters = {}) {
+  const rawList = await fetchAllQuotaUsers()
+  const normalized = rawList.map(normalizeQuotaUser)
+  const filtered = filterQuotaUsers(normalized, filters)
+  return {
+    list: filtered,
+    total: filtered.length,
+    unfilteredTotal: rawList.length
+  }
 }
 
 export async function adjustUserQuota(payload) {
-  // 兼容 UI 弹窗表单传回来的各种可能的字段名
   const limit = Number(payload.tokenLimit || payload.tokenQuota || payload.limit || 0)
   const percent = Number(payload.warningThreshold || payload.percent || 0)
-  
-  // 防止 URL 出现 /undefined 的 404 错误
-  const targetId = payload.userId || payload.id 
-  
+  const targetId = payload.userId || payload.id
+
   const body = {
     api_token_limit: limit,
     api_token_warning_threshold: Math.floor(limit * (percent / 100))
@@ -89,20 +148,18 @@ export async function adjustUserQuota(payload) {
 }
 
 export async function fetchQuotaOverview() {
-  const res = await api.get('/api/quota/admin/users', { params: { page: 1, page_size: 100 } })
-  const data = unwrap(res) || {}
-  
-  // 安全提取数组
-  const list = Array.isArray(data) ? data : (data.list || data.items || [])
-  
+  const result = await fetchQuotaUserList()
+  const list = result.list || []
+
   return {
-    totalUsers: data.total || list.length,
-    totalConsumedTokens: list.reduce((s, i) => s + (i.api_token_used || 0), 0),
-    warningUsers: list.filter(i => {
-      const limit = i.api_token_limit || 1;
-      return (i.api_token_used / limit) >= 0.8;
+    totalUsers: Number(list.length || 0),
+    totalConsumedTokens: list.reduce((sum, item) => sum + Number(item.tokenUsed || 0), 0),
+    warningUsers: list.filter((item) => {
+      const quota = Number(item.tokenQuota || 0)
+      if (!quota) return false
+      return Number(item.tokenUsed || 0) / quota >= 0.8
     }).length,
-    insufficientUsers: list.filter(i => i.api_token_used >= (i.api_token_limit || 0)).length
+    insufficientUsers: list.filter((item) => Number(item.tokenUsed || 0) >= Number(item.tokenQuota || 0)).length
   }
 }
 
@@ -154,11 +211,10 @@ export async function fetchQuotaConsumptionRecords(filters = {}) {
   
   return { 
     list: normalized, 
-    total: normalized.length 
+    total: normalized.length,
+    unfilteredTotal: list.length
   } 
 }
-
-/* ========================== 2. 数据中心 & 模型广场管理 ========================== */
 
 export async function fetchDatasetList(filters = {}) {
   const params = {}
@@ -166,17 +222,30 @@ export async function fetchDatasetList(filters = {}) {
 
   const response = await api.get('/api/datasets/admin/all', { params })
   const data = unwrap(response) || {}
-  
-  // 安全提取数组
-  const list = Array.isArray(data) ? data : (data.list || data.items || [])
-  
+  const list = toNormalizedList(data)
+
   return {
-    list: list.map(i => ({
-      ...i,
-      reviewStatus: i.status === 1 ? 'APPROVED' : (i.status === 2 ? 'REJECTED' : 'PENDING'),
-      submittedAt: i.created_at
+    list: list.map((item) => ({
+      ...item,
+      owner:
+        item.owner ||
+        item.creator ||
+        item.creator_name ||
+        item.username ||
+        item.user_name ||
+        item.owner_username ||
+        item.owner_name ||
+        item.share_username ||
+        item.shared_by_username ||
+        '-',
+      samples: Number(item.row_count || item.samples || 0),
+      publishStatus: Number(item.status) === 3 ? 'OFFLINE' : (item.is_public ? 'PUBLIC' : 'PRIVATE'),
+      category: item.category || '-',
+      tags: parseTags(item.tags),
+      reviewStatus: Number(item.status) === 1 ? 'APPROVED' : (Number(item.status) === 2 ? 'REJECTED' : 'PENDING'),
+      submittedAt: item.created_at
     })),
-    total: data.total || list.length
+    total: Number(data.total || list.length)
   }
 }
 
@@ -186,46 +255,76 @@ export async function fetchModelList(filters = {}) {
 
   const response = await api.get('/api/models/admin/all', { params })
   const data = unwrap(response) || {}
-  
-  // 安全提取数组
-  const list = Array.isArray(data) ? data : (data.list || data.items || [])
-  
+  const list = toNormalizedList(data)
+
   return {
-    list: list.map(i => ({
-      ...i,
-      reviewStatus: i.status === 1 ? 'APPROVED' : (i.status === 2 ? 'REJECTED' : 'PENDING'),
-      createdAt: i.created_at
+    list: list.map((item) => ({
+      ...item,
+      owner:
+        item.owner ||
+        item.creator ||
+        item.creator_name ||
+        item.username ||
+        item.user_name ||
+        item.owner_username ||
+        item.owner_name ||
+        item.share_username ||
+        item.shared_by_username ||
+        '-',
+      version: item.version || '-',
+      framework: item.framework || item.model_type || '-',
+      viewCount: Number(item.view_count || 0),
+      isRecommended: Boolean(item.is_recommended),
+      publishStatus: Number(item.status) === 3 ? 'OFFLINE' : (item.is_public ? 'PUBLIC' : 'PRIVATE'),
+      category: item.category || '-',
+      tags: parseTags(item.tags),
+      reviewStatus: Number(item.status) === 1 ? 'APPROVED' : (Number(item.status) === 2 ? 'REJECTED' : 'PENDING'),
+      createdAt: item.created_at
     })),
-    total: data.total || list.length
+    total: Number(data.total || list.length)
   }
 }
 
-export async function updateDatasetReviewStatus(p) { 
-  return api.post(`/api/datasets/${p.datasetId}/audit`, { 
-    status: mapStatusToBackend(p.reviewStatus), 
-    rejection_reason: p.reviewComment 
-  }) 
+export async function updateDatasetReviewStatus(payload) {
+  const response = await api.post(`/api/datasets/${payload.datasetId}/audit`, {
+    status: mapStatusToBackend(payload.reviewStatus),
+    rejection_reason: payload.reviewComment
+  })
+  return unwrap(response)
 }
 
-export async function updateModelReviewStatus(p) { 
-  return api.post(`/api/models/${p.modelId}/audit`, { 
-    status: mapStatusToBackend(p.reviewStatus), 
-    rejection_reason: p.reviewComment 
-  }) 
+export async function updateModelReviewStatus(payload) {
+  const response = await api.post(`/api/models/${payload.modelId}/audit`, {
+    status: mapStatusToBackend(payload.reviewStatus),
+    rejection_reason: payload.reviewComment
+  })
+  return unwrap(response)
 }
 
-export async function updateDatasetMeta(p) { 
-  return api.put(`/api/datasets/${p.datasetId}`, { category: p.category, tags: p.tags }) 
+export async function updateDatasetMeta(payload) {
+  const response = await api.put(`/api/datasets/${payload.datasetId}`, {
+    category: payload.category,
+    tags: payload.tags
+  })
+  return unwrap(response)
 }
 
-export async function updateModelMeta(p) { 
-  return api.put(`/api/models/${p.modelId}`, { category: p.category, tags: p.tags }) 
+export async function updateModelMeta(payload) {
+  const response = await api.put(`/api/models/${payload.modelId}`, {
+    category: payload.category,
+    tags: payload.tags
+  })
+  return unwrap(response)
 }
 
-export async function updateDatasetPublishStatus(p) { 
-  return api.post(`/api/datasets/${p.datasetId}/${p.publishStatus === 'OFFLINE' ? 'take-down' : 'publish'}`) 
+export async function updateDatasetPublishStatus(payload) {
+  const action = payload.publishStatus === 'OFFLINE' ? 'take-down' : 'publish'
+  const response = await api.post(`/api/datasets/${payload.datasetId}/${action}`)
+  return unwrap(response)
 }
 
-export async function updateModelPublishStatus(p) { 
-  return api.post(`/api/models/${p.modelId}/${p.publishStatus === 'OFFLINE' ? 'take-down' : 'publish'}`) 
+export async function updateModelPublishStatus(payload) {
+  const action = payload.publishStatus === 'OFFLINE' ? 'take-down' : 'publish'
+  const response = await api.post(`/api/models/${payload.modelId}/${action}`)
+  return unwrap(response)
 }

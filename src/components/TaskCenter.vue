@@ -92,6 +92,19 @@
                 <el-icon><CircleCloseFilled /></el-icon>
                 取消
               </el-button>
+              <el-tooltip
+                v-if="canShareWorkflowRole"
+                :content="shareWorkflowDisabledReason"
+                :disabled="canShareCurrentTask"
+                placement="top"
+              >
+                <span>
+                  <el-button type="success" plain :disabled="!canShareCurrentTask" @click="openShareWorkflowDialog">
+                    <el-icon><Share /></el-icon>
+                    分享工作流
+                  </el-button>
+                </span>
+              </el-tooltip>
             </div>
           </div>
         </section>
@@ -268,9 +281,9 @@
                 </el-form>
                 <div class="demo-actions">
                   <el-button plain @click="fillSinglePredictSample">填入样例</el-button>
-                  <el-button 
-                    type="primary" 
-                    :loading="predicting" 
+                  <el-button
+                    type="primary"
+                    :loading="predicting"
                     @click="runSinglePrediction"
                   >
                     <el-icon><Position /></el-icon> 发送预测请求
@@ -396,7 +409,7 @@
               plain
               type="success"
               :disabled="lifecycleStatus !== 'COMPLETED' || !currentTaskId"
-              @click="openWorkflowShareDialog"
+              @click="openShareWorkflowDialog"
             >
               分享工作流
             </el-button>
@@ -606,6 +619,19 @@
             <div class="el-upload__text">拖拽 CSV 到这里，或 <em>点击上传</em></div>
           </el-upload>
           <el-progress v-if="uploadingDataset || uploadProgress > 0" class="upload-progress" :percentage="uploadProgress" />
+          <div v-if="draftDatasetId" class="upload-result">
+            <div class="upload-result-meta">
+              <span class="upload-result-label">已上传文件</span>
+              <strong class="upload-result-name">{{ draftDatasetName || 'dataset.csv' }}</strong>
+            </div>
+            <div class="upload-result-actions">
+              <el-button plain size="small" :disabled="!draftPreviewRows.length" @click="openDraftPreviewDialog">
+                <el-icon><Grid /></el-icon>
+                预览数据
+              </el-button>
+            </div>
+          </div>
+          <div v-if="draftPreviewError" class="upload-preview-error">{{ draftPreviewError }}</div>
         </section>
 
         <section class="create-section">
@@ -650,6 +676,20 @@
           min-width="120"
         />
       </el-table>
+      <div v-else class="modal-empty">暂无可预览数据。</div>
+    </el-dialog>
+
+    <el-dialog v-model="draftPreviewDialogVisible" title="上传数据预览" width="860px" class="agent-dialog">
+      <el-table v-if="draftPreviewRows.length" :data="draftPreviewRows" height="360">
+        <el-table-column
+          v-for="column in draftPreviewColumns"
+          :key="column"
+          :prop="column"
+          :label="column"
+          min-width="120"
+        />
+      </el-table>
+      <div v-else class="modal-empty">{{ draftPreviewError || '暂无可预览数据。' }}</div>
     </el-dialog>
 
     <el-dialog v-model="reviewDialogVisible" :title="`人工审核确认 - ${reviewStageLabel}`" width="850px" class="agent-dialog">
@@ -796,39 +836,33 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="workflowShareDialogVisible" title="分享工作流" width="620px" class="agent-dialog">
-      <el-form label-position="top" class="share-workflow-form">
-        <el-form-item label="标题">
-          <el-input v-model="workflowShareForm.title" maxlength="100" show-word-limit placeholder="给这个工作流起一个清晰的名称" />
+    <el-dialog v-model="shareWorkflowDialogVisible" title="分享工作流" width="640px" class="agent-dialog" destroy-on-close>
+      <el-form label-width="120px">
+        <el-form-item label="任务 ID">
+          <el-input :model-value="currentTaskId" disabled />
         </el-form-item>
-        <el-form-item label="描述">
-          <el-input
-            v-model="workflowShareForm.description"
-            type="textarea"
-            :rows="4"
-            maxlength="500"
-            show-word-limit
-            placeholder="说明适用场景、数据要求和复用方式"
-          />
+        <el-form-item label="任务名称">
+          <el-input :model-value="currentTask?.task_description || currentTaskId || '-'" disabled />
         </el-form-item>
-        <div class="share-form-grid">
-          <el-form-item label="分类">
-            <el-input v-model="workflowShareForm.category" placeholder="如：分类建模、回归预测" />
-          </el-form-item>
-          <el-form-item label="适用任务类型">
-            <el-input v-model="workflowShareForm.applicable_task_types" placeholder="如：CLASSIFICATION,REGRESSION" />
-          </el-form-item>
-        </div>
+        <el-form-item label="任务类型">
+          <el-input :model-value="currentTask?.task_type || '-'" disabled />
+        </el-form-item>
+        <el-form-item label="工作流标题" required>
+          <el-input v-model="shareWorkflowForm.title" maxlength="100" show-word-limit />
+        </el-form-item>
+        <el-form-item label="工作流说明">
+          <el-input v-model="shareWorkflowForm.description" type="textarea" :rows="3" />
+        </el-form-item>
+        <el-form-item label="分类">
+          <el-input v-model="shareWorkflowForm.category" />
+        </el-form-item>
         <el-form-item label="标签">
-          <el-input v-model="workflowShareForm.tags" placeholder="多个标签用逗号分隔，如 sklearn,快速原型,教学" />
+          <el-input v-model="shareWorkflowForm.tags" placeholder="多个标签用逗号分隔" />
         </el-form-item>
-        <div class="share-workflow-note">
-          提交后会进入管理员审核队列。系统会自动附带当前任务的节点配置、训练策略和生成代码。
-        </div>
       </el-form>
       <template #footer>
-        <el-button plain @click="workflowShareDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="sharingWorkflow" @click="submitWorkflowShare">提交审核</el-button>
+        <el-button plain @click="shareWorkflowDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="shareWorkflowSubmitting" @click="submitWorkflowShare">提交分享</el-button>
       </template>
     </el-dialog>
   </div>
@@ -890,6 +924,14 @@ const predictionRowHeight = 50
 const predictionTableHeaderHeight = 48
 const predictionJsonDialogVisible = ref(false)
 const predictionJsonText = ref('')
+const shareWorkflowDialogVisible = ref(false)
+const shareWorkflowSubmitting = ref(false)
+const shareWorkflowForm = ref({
+  title: '',
+  description: '',
+  category: '',
+  tags: ''
+})
 const currentReport = ref(null)
 const runOffline = ref(true)
 const taskRunModeMap = ref({})
@@ -903,11 +945,13 @@ const cancelling = ref(false)
 const savingCode = ref(false)
 const createDialogVisible = ref(false)
 const previewDialogVisible = ref(false)
+const draftPreviewDialogVisible = ref(false)
 const reviewDialogVisible = ref(false)
 const draftTaskDesc = ref('')
 const draftDatasetId = ref(null)
 const draftDatasetName = ref('')
 const draftPreviewRows = ref([])
+const draftPreviewError = ref('')
 const draftRunOffline = ref(true)
 const uploadingDataset = ref(false)
 const uploadProgress = ref(0)
@@ -939,15 +983,6 @@ const selectedStageKey = ref('manager_parse')
 const stageCodePreviewText = ref('')
 const stageCodePreviewPath = ref('')
 const stageCodePreviewLoading = ref(false)
-const workflowShareDialogVisible = ref(false)
-const sharingWorkflow = ref(false)
-const workflowShareForm = ref({
-  title: '',
-  description: '',
-  category: '',
-  applicable_task_types: '',
-  tags: ''
-})
 
 const canReview = computed(() => ['ADMIN', 'DEVELOPER'].includes(userStore.role))
 const hitlOptions = [
@@ -977,6 +1012,14 @@ const statusText = computed(() => {
 const previewColumns = computed(() => previewRows.value[0] ? Object.keys(previewRows.value[0]) : [])
 const draftPreviewColumns = computed(() => draftPreviewRows.value[0] ? Object.keys(draftPreviewRows.value[0]) : [])
 const canRunTask = computed(() => ['CREATED', 'READY_TO_RESUME'].includes(lifecycleStatus.value))
+const canShareWorkflowRole = computed(() => ['ADMIN', 'DEVELOPER'].includes(String(userStore.role || '').toUpperCase()))
+const canShareCurrentTask = computed(() => canShareWorkflowRole.value && lifecycleStatus.value === 'COMPLETED' && !!currentTaskId.value)
+const shareWorkflowDisabledReason = computed(() => {
+  if (!canShareWorkflowRole.value) return '仅管理员和 AI 开发者可分享工作流'
+  if (!currentTaskId.value) return '请先选择任务'
+  if (lifecycleStatus.value !== 'COMPLETED') return '仅 COMPLETED 状态任务可分享工作流'
+  return ''
+})
 const runButtonText = computed(() => (lifecycleStatus.value === 'READY_TO_RESUME' ? '继续运行' : '运行'))
 const formattedReview = computed(() => JSON.stringify(pendingReview.value?.payload || pendingReview.value, null, 2))
 const normalizeReviewStage = (stage) => {
@@ -1274,6 +1317,76 @@ const stages = computed(() => {
 const normalizeDatasetId = (result) => result?.dataset_id || result?.id || result?.dataset?.id
 const normalizeRows = (preview) => Array.isArray(preview) ? preview : Array.isArray(preview?.rows) ? preview.rows : []
 const normalizeTaskId = (task) => task?.task_id || task?.id
+const PREVIEW_ROW_LIMIT = 20
+const PREVIEW_FILE_SLICE_BYTES = 1024 * 1024
+
+const parseCsvRow = (lineText) => {
+  const row = []
+  let value = ''
+  let inQuotes = false
+
+  for (let i = 0; i < lineText.length; i += 1) {
+    const char = lineText[i]
+    const nextChar = lineText[i + 1]
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        value += '"'
+        i += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+      continue
+    }
+
+    if (char === ',' && !inQuotes) {
+      row.push(value)
+      value = ''
+      continue
+    }
+
+    value += char
+  }
+
+  row.push(value)
+  return row
+}
+
+const parseCsvPreviewFromText = (text, maxRows = PREVIEW_ROW_LIMIT) => {
+  const lines = String(text || '')
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0)
+
+  if (!lines.length) return []
+
+  const header = parseCsvRow(lines[0])
+  if (!header.length) return []
+
+  const rows = []
+  for (let lineIndex = 1; lineIndex < lines.length && rows.length < maxRows; lineIndex += 1) {
+    const values = parseCsvRow(lines[lineIndex])
+    const columnCount = Math.max(header.length, values.length)
+    const row = {}
+    for (let col = 0; col < columnCount; col += 1) {
+      const key = String(header[col] || `column_${col + 1}`).trim() || `column_${col + 1}`
+      row[key] = values[col] ?? ''
+    }
+    rows.push(row)
+  }
+
+  return rows
+}
+
+const readCsvPreviewRows = async (file) => {
+  const fileChunk = typeof file.slice === 'function' ? file.slice(0, PREVIEW_FILE_SLICE_BYTES) : file
+  const text = await (typeof fileChunk?.text === 'function' ? fileChunk.text() : Promise.resolve(''))
+  const rows = parseCsvPreviewFromText(text, PREVIEW_ROW_LIMIT)
+  if (!rows.length) throw new Error('未解析到可预览的数据行，请检查 CSV 是否包含表头与数据。')
+  return rows
+}
+
 const normalizeStringArray = (list) => Array.from(new Set((Array.isArray(list) ? list : []).map((item) => String(item || '').trim()).filter(Boolean)))
 const normalizeColumnList = (value) => {
   if (Array.isArray(value)) return normalizeStringArray(value)
@@ -1756,6 +1869,10 @@ const syncTaskState = (task) => {
 const openCreateDialog = () => {
   draftTaskDesc.value = ''
   draftDatasetId.value = null
+  draftDatasetName.value = ''
+  draftPreviewRows.value = []
+  draftPreviewError.value = ''
+  draftPreviewDialogVisible.value = false
   uploadProgress.value = 0
   selectedHitlStages.value = []
   createDialogVisible.value = true
@@ -1770,6 +1887,18 @@ const openPreviewDialog = async () => {
   } catch (error) { ElMessage.error('预览失败') }
 }
 
+const openDraftPreviewDialog = () => {
+  if (!draftDatasetId.value) {
+    ElMessage.warning('请先上传数据集')
+    return
+  }
+  if (!draftPreviewRows.value.length) {
+    ElMessage.warning(draftPreviewError.value || '暂时无法预览该文件，请重新上传后重试。')
+    return
+  }
+  draftPreviewDialogVisible.value = true
+}
+
 const beforeCsvUpload = (file) => {
   if (!file.name.toLowerCase().endsWith('.csv') && file.type !== 'text/csv') return ElMessage.error('仅支持 CSV 文件') && false
   return true
@@ -1777,9 +1906,21 @@ const beforeCsvUpload = (file) => {
 
 const handleDatasetUpload = async ({ file, onSuccess, onError }) => {
   uploadingDataset.value = true
+  uploadProgress.value = 0
+  draftPreviewDialogVisible.value = false
+  draftPreviewRows.value = []
+  draftPreviewError.value = ''
+  draftDatasetName.value = file?.name || ''
   try {
     const result = await uploadAgentDataset(file, (p) => uploadProgress.value = Number(p))
     draftDatasetId.value = normalizeDatasetId(result)
+    try {
+      draftPreviewRows.value = await readCsvPreviewRows(file)
+    } catch (previewError) {
+      draftPreviewRows.value = []
+      draftPreviewError.value = previewError?.message || '文件上传成功，但预览解析失败。'
+      ElMessage.warning('文件上传成功，但预览解析失败')
+    }
     ElMessage.success('上传成功')
     onSuccess?.(result)
   } catch (error) { ElMessage.error('上传失败'); onError?.(error) } finally { uploadingDataset.value = false }
@@ -1825,6 +1966,70 @@ const cancelSelectedTask = async () => {
     await cancelAgentTask(currentTaskId.value)
     lifecycleStatus.value = 'CANCELLED'
   } catch (error) { ElMessage.error('取消失败') } finally { cancelling.value = false }
+}
+
+const parseShareTags = (value) => {
+  const raw = String(value || '').trim()
+  if (!raw) return null
+  return raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .join(',')
+}
+
+const buildDefaultShareTitle = () => {
+  const taskName = String(currentTask.value?.task_description || '').trim()
+  if (taskName) return `${taskName} 工作流`
+  return `任务 ${currentTaskId.value} 工作流`
+}
+
+const openShareWorkflowDialog = () => {
+  if (!canShareCurrentTask.value) return
+  shareWorkflowForm.value = {
+    title: buildDefaultShareTitle(),
+    description: '',
+    category: '',
+    tags: ''
+  }
+  shareWorkflowDialogVisible.value = true
+}
+
+const submitWorkflowShare = async () => {
+  if (!canShareCurrentTask.value) {
+    ElMessage.warning(shareWorkflowDisabledReason.value || '当前任务不可分享')
+    return
+  }
+
+  const title = String(shareWorkflowForm.value.title || '').trim()
+  if (!title) {
+    ElMessage.warning('请先填写工作流标题')
+    return
+  }
+
+  shareWorkflowSubmitting.value = true
+  try {
+    await shareAgentWorkflow({
+      task_id: String(currentTaskId.value || '').trim(),
+      title,
+      description: String(shareWorkflowForm.value.description || '').trim() || null,
+      category: String(shareWorkflowForm.value.category || '').trim() || null,
+      applicable_task_types: String(currentTask.value?.task_type || '').trim() || null,
+      tags: parseShareTags(shareWorkflowForm.value.tags)
+    })
+    ElMessage.success('工作流分享成功，已提交审核')
+    shareWorkflowDialogVisible.value = false
+
+    const selectedTaskId = currentTaskId.value
+    await loadTasks(false, true)
+    if (selectedTaskId) {
+      await selectTask(selectedTaskId)
+    }
+  } catch (error) {
+    ElMessage.error(error.message || '工作流分享失败')
+  } finally {
+    shareWorkflowSubmitting.value = false
+  }
 }
 
 const resetVisibleTaskItems = () => {
@@ -2154,7 +2359,7 @@ const runPrediction = async () => {
   } catch (error) { ElMessage.error('批量预测失败') } finally { predicting.value = false }
 }
 
-// 其他弹窗功能（保持原有精简）
+// 其他弹窗功能
 const openPredictionJsonDialog = () => { predictionJsonDialogVisible.value = true }
 const confirmPredictionJsonImport = () => {
   try {
@@ -2180,40 +2385,6 @@ const downloadTaskArtifacts = async () => {
   try { const response = await downloadAgentTaskArtifacts(currentTaskId.value); const blob = new Blob([response.data], { type: 'application/zip' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'artifacts.zip'; document.body.appendChild(link); link.click(); URL.revokeObjectURL(url) }
   catch (error) { ElMessage.error('下载失败') }
 }
-const openWorkflowShareDialog = () => {
-  if (lifecycleStatus.value !== 'COMPLETED') return ElMessage.warning('任务完成后才能分享工作流')
-  workflowShareForm.value = {
-    title: currentReport.value?.title || currentTask.value?.task_description?.slice(0, 36) || 'Agent 建模工作流',
-    description: currentReport.value?.summary || currentTask.value?.task_description || '',
-    category: reportTaskType.value && reportTaskType.value !== '-' ? reportTaskType.value : '',
-    applicable_task_types: reportTaskType.value && reportTaskType.value !== '-' ? reportTaskType.value : '',
-    tags: reportFeatureColumns.value.slice(0, 5).join(',')
-  }
-  workflowShareDialogVisible.value = true
-}
-const submitWorkflowShare = async () => {
-  if (!currentTaskId.value) return ElMessage.warning('请先选择任务')
-  const title = workflowShareForm.value.title.trim()
-  if (!title) return ElMessage.warning('请填写工作流标题')
-  sharingWorkflow.value = true
-  try {
-    const payload = {
-      task_id: currentTaskId.value,
-      title,
-      description: workflowShareForm.value.description.trim(),
-      category: workflowShareForm.value.category.trim(),
-      applicable_task_types: workflowShareForm.value.applicable_task_types.trim(),
-      tags: workflowShareForm.value.tags.trim()
-    }
-    await shareAgentWorkflow(payload)
-    workflowShareDialogVisible.value = false
-    ElMessage.success('工作流已提交审核')
-  } catch (error) {
-    ElMessage.error(error.message || '工作流分享失败')
-  } finally {
-    sharingWorkflow.value = false
-  }
-}
 const handleExportCommand = async (command) => {
   if (command === 'package') {
     await downloadTaskArtifacts()
@@ -2233,17 +2404,100 @@ const handleExportCommand = async (command) => {
 }
 
 // ================= PDF & MD 导出 =================
-const downloadReportPDF = () => {
+const downloadReportPDF = async () => {
   const element = document.getElementById('report-content')
   if (!element) return ElMessage.error('找不到报告 DOM')
-  html2pdf().from(element).set({
-    margin: [10, 10, 10, 10],
-    filename: `Report_${currentTaskId.value}.pdf`,
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-  }).save()
+
+  ElMessage.info('正在处理白底黑字科研排版，请稍候...')
+
+  // 1. 暴力注入全局打印样式，跳过 Vue scoped 的限制，强杀所有深色背景
+  const printStyle = document.createElement('style')
+  printStyle.id = 'pdf-print-style'
+  printStyle.innerHTML = `
+    #report-content { background-color: #ffffff !important; color: #000000 !important; }
+    #report-content * { color: #000000 !important; border-color: #dcdfe6 !important; }
+    /* 去除卡片背景和阴影，还原纯白文档感 */
+    #report-content .report-summary-card,
+    #report-content .report-section,
+    #report-content .report-block {
+      background-color: #ffffff !important;
+      background: none !important;
+      box-shadow: none !important;
+      border: 1px solid #dcdfe6 !important;
+    }
+    /* 强制 Element 表格在截图时变为白底黑字 */
+    #report-content .el-table,
+    #report-content .el-table th,
+    #report-content .el-table tr,
+    #report-content .el-table td {
+      background-color: #ffffff !important;
+      color: #000000 !important;
+      border-bottom: 1px solid #dcdfe6 !important;
+    }
+    /* 标签底色调整为浅灰，确保黑字清晰 */
+    #report-content .report-tags span {
+      background-color: #f4f4f5 !important;
+      color: #000000 !important;
+      border: 1px solid #dcdfe6 !important;
+    }
+
+    /* ================= 专门修复联网参考 ================= */
+    /* 强制参考卡片白底、断字处理防止撑爆 */
+    #report-content .reference-item {
+      background-color: #ffffff !important;
+      background: none !important;
+      box-shadow: none !important;
+      border: 1px solid #dcdfe6 !important;
+      word-break: break-word !important;
+    }
+    /* 针对带超链接的 <a> 标签，强制抹除默认蓝色及下划线，变为纯黑 */
+    #report-content a.reference-item,
+    #report-content .reference-item strong,
+    #report-content .reference-item span {
+      color: #000000 !important;
+      text-decoration: none !important;
+    }
+    /* ==================================================== */
+  `
+  document.head.appendChild(printStyle)
+
+  // 2. 临时强制切换页面的主题为 Light (为了让 ECharts Canvas 内部的文字重绘为黑色)
+  const oldTheme = document.documentElement.getAttribute('data-theme')
+  const isDark = document.documentElement.classList.contains('dark')
+  document.documentElement.setAttribute('data-theme', 'light')
+  document.documentElement.classList.remove('dark')
+
+  // 3. 核心：必须等待足够长的时间(600ms)，让图表动画和浏览器重绘彻底完成
+  await new Promise(resolve => setTimeout(resolve, 600))
+
+  try {
+    // 4. 开始纯净截图
+    await html2pdf().from(element).set({
+      margin: [15, 15, 15, 15],
+      filename: `Research_Report_${currentTaskId.value}.pdf`,
+      image: { type: 'jpeg', quality: 1 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff', // 再次确保底层画布是白色的
+        logging: false
+      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    }).save()
+  } catch (error) {
+    ElMessage.error('PDF 导出出错')
+  } finally {
+    // 5. 导出完成后：清理现场，神不知鬼不觉地恢复用户原本的深色模式
+    if (document.getElementById('pdf-print-style')) {
+      document.head.removeChild(printStyle)
+    }
+    if (oldTheme) document.documentElement.setAttribute('data-theme', oldTheme)
+    else document.documentElement.removeAttribute('data-theme')
+
+    if (isDark) document.documentElement.classList.add('dark')
+  }
 }
+
 const buildReportMarkdownFallback = () => `
 # 智算模型执行报告
 **任务 ID**: ${currentTaskId.value}
@@ -2343,6 +2597,8 @@ watch(currentTaskId, (nextId, prevId) => {
   stageCodePreviewText.value = ''
   stageCodePreviewPath.value = ''
   stageCodePreviewLoading.value = false
+  shareWorkflowDialogVisible.value = false
+  shareWorkflowSubmitting.value = false
 })
 
 onMounted(() => {
@@ -3175,6 +3431,46 @@ onBeforeUnmount(() => {
 .upload-dropzone :deep(.el-upload-dragger) { width: 100%; }
 .upload-icon { margin-bottom: 4px; }
 .upload-progress { margin-top: 10px; }
+.upload-result {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--zs-border);
+  border-radius: 12px;
+  background: var(--zs-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.upload-result-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.upload-result-label {
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+.upload-result-name {
+  color: var(--zs-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  word-break: break-all;
+}
+.upload-result-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.upload-preview-error {
+  margin-top: 8px;
+  color: var(--el-color-warning);
+  font-size: 12px;
+  line-height: 1.62;
+}
 .modal-empty { padding: 18px 8px; color: var(--zs-muted); font-size: 13px; line-height: 1.6; }
 
 :deep(.report-table.compact .el-table__cell) {

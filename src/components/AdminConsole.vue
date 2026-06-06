@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="admin-console">
     <el-alert
       v-if="isUsingMockData"
@@ -6,7 +6,7 @@
       :closable="false"
       show-icon
       class="mock-alert"
-      title="当前为假数据模式，后端接口完成后要接上真实接口。"
+      title="当前为演示数据模式，后端接口完成后请切换为真实接口。"
     />
 
     <el-tabs v-model="activeTab">
@@ -459,8 +459,16 @@
           <el-table :data="pagedModels" border style="width: 100%" v-loading="modelLoading">
             <el-table-column prop="name" label="模型名称" min-width="210" />
             <el-table-column prop="owner" label="发布者" width="140" />
-            <el-table-column prop="version" label="版本" width="100" />
-            <el-table-column prop="framework" label="框架" width="130" />
+            <el-table-column prop="viewCount" label="浏览量" width="110">
+              <template #default="scope">{{ formatNumber(scope.row.viewCount) }}</template>
+            </el-table-column>
+            <el-table-column label="推荐状态" width="110">
+              <template #default="scope">
+                <el-tag :type="scope.row.isRecommended ? 'success' : 'info'">
+                  {{ scope.row.isRecommended ? '推荐' : '普通' }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="审核状态" width="120">
               <template #default="scope">
                 <el-tag :type="resolveReviewStatusTag(scope.row.reviewStatus)">
@@ -524,6 +532,10 @@
             />
           </div>
         </el-card>
+      </el-tab-pane>
+
+      <el-tab-pane label="工作流审核管理" name="workflow">
+        <AdminWorkflowReviewPanel />
       </el-tab-pane>
     </el-tabs>
 
@@ -649,6 +661,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import AdminWorkflowReviewPanel from './AdminWorkflowReviewPanel.vue'
 import {
   isUsingMockData,  
   adjustUserQuota,
