@@ -507,7 +507,7 @@
         <section class="create-section">
           <div class="create-section-head">
             <div>
-              <div class="panel-title">2. 数据集上传</div>
+              <div class="panel-title">2. 数据集上传（仅支持UTF-8编码）</div>
             </div>
           </div>
           <el-upload
@@ -1226,6 +1226,38 @@ const normalizeTaskId = (task) => {
 }
 const PREVIEW_ROW_LIMIT = 20
 const PREVIEW_FILE_SLICE_BYTES = 1024 * 1024
+const PREVIEW_TEXT_ENCODINGS = ['utf-8', 'gb18030']
+
+const scoreDecodedPreviewText = (text) => {
+  const value = String(text || '')
+  const replacementCount = (value.match(/\uFFFD/g) || []).length
+  const mojibakeCount = (value.match(/[\u00C2\u00C3\u00E2\u951F]/g) || []).length
+  return replacementCount * 20 + mojibakeCount * 5
+}
+
+const decodeCsvPreviewChunk = async (fileChunk) => {
+  if (typeof fileChunk?.arrayBuffer !== 'function') {
+    return typeof fileChunk?.text === 'function' ? fileChunk.text() : ''
+  }
+  const buffer = await fileChunk.arrayBuffer()
+  if (typeof TextDecoder === 'undefined') {
+    return typeof fileChunk?.text === 'function' ? fileChunk.text() : ''
+  }
+
+  const candidates = PREVIEW_TEXT_ENCODINGS
+    .map((encoding) => {
+      try {
+        const text = new TextDecoder(encoding).decode(buffer)
+        return { text, score: scoreDecodedPreviewText(text) }
+      } catch {
+        return null
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.score - b.score)
+
+  return candidates[0]?.text || ''
+}
 
 const parseCsvRow = (lineText) => {
   const row = []
@@ -1288,10 +1320,32 @@ const parseCsvPreviewFromText = (text, maxRows = PREVIEW_ROW_LIMIT) => {
 
 const readCsvPreviewRows = async (file) => {
   const fileChunk = typeof file.slice === 'function' ? file.slice(0, PREVIEW_FILE_SLICE_BYTES) : file
-  const text = await (typeof fileChunk?.text === 'function' ? fileChunk.text() : Promise.resolve(''))
+  const text = await decodeCsvPreviewChunk(fileChunk)
   const rows = parseCsvPreviewFromText(text, PREVIEW_ROW_LIMIT)
   if (!rows.length) throw new Error('未解析到可预览的数据行，请检查 CSV 是否包含表头与数据。')
   return rows
+}
+
+const readUploadedDatasetPreviewRows = async (uploadedDatasetId, file) => {
+  if (uploadedDatasetId) {
+    try {
+      const backendRows = normalizeRows(await fetchDatasetPreview(uploadedDatasetId)).slice(0, PREVIEW_ROW_LIMIT)
+      if (backendRows.length) return backendRows
+    } catch {
+      // Fall back to local decoding when the preview API is temporarily unavailable.
+    }
+  }
+  return readCsvPreviewRows(file)
+}
+
+const normalizeCsvFileForUpload = async (file) => {
+  if (!file || typeof file.arrayBuffer !== 'function' || typeof File !== 'function') return file
+  const text = await decodeCsvPreviewChunk(file)
+  if (!text) return file
+  return new File([text], file.name || 'dataset.csv', {
+    type: 'text/csv;charset=utf-8',
+    lastModified: Number(file.lastModified || Date.now())
+  })
 }
 
 const normalizeStringArray = (list) => Array.from(new Set((Array.isArray(list) ? list : []).map((item) => String(item || '').trim()).filter(Boolean)))
@@ -1698,10 +1752,12 @@ const handleDatasetUpload = async ({ file, onSuccess, onError }) => {
   draftPreviewError.value = ''
   draftDatasetName.value = file?.name || ''
   try {
-    const result = await uploadAgentDataset(file, (p) => uploadProgress.value = Number(p))
-    draftDatasetId.value = normalizeDatasetId(result)
+    const uploadFile = await normalizeCsvFileForUpload(file)
+    const result = await uploadAgentDataset(uploadFile, (p) => uploadProgress.value = Number(p))
+    const uploadedDatasetId = normalizeDatasetId(result)
+    draftDatasetId.value = uploadedDatasetId
     try {
-      draftPreviewRows.value = await readCsvPreviewRows(file)
+      draftPreviewRows.value = await readUploadedDatasetPreviewRows(uploadedDatasetId, uploadFile)
     } catch (previewError) {
       draftPreviewRows.value = []
       draftPreviewError.value = previewError?.message || '文件上传成功，但预览解析失败。'

@@ -47,3 +47,7 @@ Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://
 人机协同到模型出现 Agent 任务恢复失败；
 社区模型点击查看详情弹出 Example Domain(直接删除了按钮)
 admin 调用消耗记录无内容
+
+### 2026.6.8
+修复了bug：
+上传的csv文件不是UTF-8编码时预览数据会出错，任务无法运行
