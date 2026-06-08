@@ -338,7 +338,7 @@ const downloadDatasetFile = async () => {
   try {
     ElMessage.info('正在准备下载，请稍候...')
     // 发起下载请求，获取 blob 流
-    const response = await downloadAgentDataset(resourceId.value)
+    const response = await downloadAgentDataset(resourceId.value, { scope: 'public' })
     
     // 兼容不同的 Axios 封装返回格式
     const blobData = response.data ? response.data : response
@@ -359,7 +359,7 @@ const downloadDatasetFile = async () => {
     window.URL.revokeObjectURL(url)
   } catch (error) {
     console.error('下载报错:', error)
-    ElMessage.error(error.message || '数据集下载失败，可能是权限不足或文件不存在')
+    ElMessage.error(error.message || '公开数据集下载失败，可能是文件不存在或尚未通过审核')
   } finally {
     datasetDownloading.value = false
   }
@@ -394,13 +394,13 @@ const loadDatasetPreview = async () => {
   datasetPreviewLoading.value = true
   datasetPreviewError.value = ''
   try {
-    const payload = await fetchDatasetPreview(resourceId.value)
+    const payload = await fetchDatasetPreview(resourceId.value, { scope: 'public' })
     datasetPreviewRows.value = normalizePreviewRows(payload).slice(0, 20)
     if (!datasetPreviewRows.value.length) datasetPreviewError.value = '当前接口未返回可展示的预览数据'
   } catch (error) {
     const status = Number(error?.status || 0)
     if (status === 401 || status === 403) {
-      datasetPreviewError.value = '数据预览需登录授权'
+      datasetPreviewError.value = '该数据集尚未公开或尚未通过审核'
     } else {
       datasetPreviewError.value = error.message || '数据预览加载失败'
     }
@@ -409,25 +409,43 @@ const loadDatasetPreview = async () => {
   }
 }
 
+const fetchCommunityDetailFallback = async (originalError) => {
+  try {
+    return await fetchCommunityResourceDetail(typeValue.value, resourceId.value)
+  } catch {
+    throw originalError
+  }
+}
+
 const loadDetail = async () => {
   if (!resourceId.value) { errorMessage.value = '无效的资源 ID'; return }
   loading.value = true
   errorMessage.value = ''
+  detail.value = null
+  datasetDetail.value = null
+  modelDetail.value = null
+  workflowDetail.value = null
+  datasetPreviewRows.value = []
+  datasetPreviewError.value = ''
   try {
-    try {
-      detail.value = await fetchCommunityResourceDetail(typeValue.value, resourceId.value)
-    } catch (e) { /* fallback */ }
-
     if (isDataset.value) {
-      datasetDetail.value = await fetchDatasetDetail(resourceId.value)
-      detail.value = detail.value || datasetDetail.value
+      try {
+        datasetDetail.value = await fetchDatasetDetail(resourceId.value)
+      } catch (error) {
+        datasetDetail.value = await fetchCommunityDetailFallback(error)
+      }
+      detail.value = datasetDetail.value
       await loadDatasetPreview()
     } else if (isModel.value) {
-      modelDetail.value = await fetchModelDetail(resourceId.value)
-      detail.value = detail.value || modelDetail.value
+      try {
+        modelDetail.value = await fetchModelDetail(resourceId.value)
+      } catch (error) {
+        modelDetail.value = await fetchCommunityDetailFallback(error)
+      }
+      detail.value = modelDetail.value
     } else if (isWorkflow.value) {
       workflowDetail.value = await fetchWorkflowDetail(resourceId.value)
-      detail.value = detail.value || workflowDetail.value
+      detail.value = workflowDetail.value
       if (workflowCode.value) workflowPreviewTab.value = 'code'
       else if (workflowSpecJsonText.value) workflowPreviewTab.value = 'spec'
     }
@@ -438,7 +456,15 @@ const loadDetail = async () => {
   }
 }
 
-const resolveForkTargetId = (payload) => payload?.workflow_id || payload?.id || payload?.new_workflow_id || null
+const resolveForkTargetId = (payload) =>
+  payload?.workflow_id ||
+  payload?.id ||
+  payload?.new_workflow_id ||
+  payload?.workflow?.workflow_id ||
+  payload?.workflow?.id ||
+  payload?.data?.workflow_id ||
+  payload?.data?.id ||
+  null
 
 const handleForkWorkflow = async () => {
   if (!canFork.value) {
@@ -452,12 +478,15 @@ const handleForkWorkflow = async () => {
     const targetId = resolveForkTargetId(result)
     
     ElMessage({
-      message: '🎉 Fork 成功！新工作流已保存至您的个人中心。',
+      message: 'Fork 成功！可在任务中心复用该工作流。',
       type: 'success',
       duration: 3000
     })
     
-    router.push('/user') 
+    const query = targetId
+      ? { source_workflow_id: String(targetId), open_create: '1' }
+      : { open_create: '1' }
+    router.push({ path: '/task-center', query })
     
   } catch (error) {
     if (error.isApiMissing) {

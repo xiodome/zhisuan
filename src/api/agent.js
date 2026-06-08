@@ -93,12 +93,43 @@ export const parseAgentTaskDescription = async (taskDescription) => {
   throw lastError || new Error('需求解析接口暂不可用')
 }
 
-export const fetchDatasetPreview = async (datasetId) => {
+const datasetAccessEndpoints = (datasetId, scope) => {
+  const privatePath = `/api/agent/datasets/${datasetId}/preview`
+  const publicPath = `/api/agent/public/datasets/${datasetId}/preview`
+  return scope === 'public' ? [publicPath] : [privatePath]
+}
+
+const datasetDownloadEndpoints = (datasetId, scope) => {
+  const privatePath = `/api/agent/datasets/${datasetId}/download`
+  const publicPath = `/api/agent/public/datasets/${datasetId}/download`
+  return scope === 'public' ? [publicPath] : [privatePath]
+}
+
+const shouldTryNextDatasetEndpoint = (error) => {
+  const status = Number(error.response?.status || 0)
+  return [401, 403, 404].includes(status)
+}
+
+export const fetchDatasetPreview = async (datasetId, options = {}) => {
+  let lastError = null
+  const endpoints = datasetAccessEndpoints(datasetId, options.scope)
+  for (const endpoint of endpoints) {
+    try {
+      const response = await agentApi.get(endpoint)
+      return unwrap(response)
+    } catch (error) {
+      lastError = error
+      if (!shouldTryNextDatasetEndpoint(error)) break
+    }
+  }
+  handleAgentError(lastError, '数据集预览加载失败')
+}
+
+export const fetchPublicAgentDatasetPreview = async (datasetId) => {
   try {
-    const response = await agentApi.get(`/api/agent/datasets/${datasetId}/preview`)
-    return unwrap(response)
+    return await fetchDatasetPreview(datasetId, { scope: 'public' })
   } catch (error) {
-    handleAgentError(error, '数据集预览加载失败')
+    handleAgentError(error, '公开数据集预览加载失败')
   }
 }
 
@@ -341,8 +372,22 @@ export const fetchAdminAgentResourceSummary = async () => {
  * 下载 Agent 数据集原始 CSV 文件
  * @param {number|string} datasetId 数据集ID
  */
-export const downloadAgentDataset = (datasetId) => {
-  return agentApi.get(`/api/agent/datasets/${datasetId}/download`, {
-    responseType: 'blob'
-  })
+export const downloadAgentDataset = async (datasetId, options = {}) => {
+  let lastError = null
+  const endpoints = datasetDownloadEndpoints(datasetId, options.scope)
+  for (const endpoint of endpoints) {
+    try {
+      return await agentApi.get(endpoint, {
+        responseType: 'blob'
+      })
+    } catch (error) {
+      lastError = error
+      if (!shouldTryNextDatasetEndpoint(error)) break
+    }
+  }
+  handleAgentError(lastError, '数据集下载失败')
+}
+
+export const downloadPublicAgentDataset = (datasetId) => {
+  return downloadAgentDataset(datasetId, { scope: 'public' })
 }

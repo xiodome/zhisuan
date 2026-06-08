@@ -1,7 +1,7 @@
 ﻿<template>
   <div class="agent-console">
     <aside class="task-rail">
-      <el-button type="primary" class="new-task-button-v2" @click="openCreateDialog">
+      <el-button type="primary" class="new-task-button-v2" @click="openCreateDialog()">
         <el-icon style="margin-right: 4px;"><Plus /></el-icon>
         创建任务
       </el-button>
@@ -507,7 +507,48 @@
         <section class="create-section">
           <div class="create-section-head">
             <div>
-              <div class="panel-title">2. 数据集上传（仅支持UTF-8编码）</div>
+              <div class="panel-title">2. 工作流模板（可选）</div>
+            </div>
+            <el-button size="small" plain :loading="workflowOptionsLoading" @click="loadWorkflowOptions()">
+              刷新
+            </el-button>
+          </div>
+
+          <div class="workflow-template-row">
+            <el-select
+              v-model="draftSourceWorkflowId"
+              clearable
+              filterable
+              :loading="workflowOptionsLoading"
+              popper-class="workflow-template-select-popper"
+              placeholder="选择已 Fork 或可见的工作流"
+              style="width: 100%;"
+            >
+              <el-option
+                v-for="workflow in workflowOptions"
+                :key="workflow.id"
+                :label="workflow.optionLabel"
+                :value="workflow.id"
+              >
+                <div class="workflow-option">
+                  <span class="workflow-option-title">{{ workflow.title }}</span>
+                  <span class="workflow-option-meta">{{ workflow.metaText }}</span>
+                </div>
+              </el-option>
+            </el-select>
+          </div>
+
+          <div v-if="selectedSourceWorkflow" class="workflow-template-selected">
+            <span>已选择</span>
+            <strong>{{ selectedSourceWorkflow.title }}</strong>
+            <small>{{ selectedSourceWorkflow.metaText }}</small>
+          </div>
+        </section>
+
+        <section class="create-section">
+          <div class="create-section-head">
+            <div>
+              <div class="panel-title">3. 数据集上传（仅支持UTF-8编码）</div>
             </div>
           </div>
           <el-upload
@@ -540,7 +581,7 @@
         <section class="create-section">
           <div class="create-section-head">
             <div>
-              <div class="panel-title">3. 运行模式</div>
+              <div class="panel-title">4. 运行模式</div>
             </div>
           </div>
           <div class="run-mode">
@@ -552,7 +593,7 @@
         <section v-if="canReview" class="create-section">
           <div class="create-section-head">
             <div>
-              <div class="panel-title">4. 中间审核设置（HITL）</div>
+              <div class="panel-title">5. 中间审核设置（HITL）</div>
             </div>
           </div>
           <el-checkbox-group v-model="selectedHitlStages">
@@ -785,6 +826,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../store/user'
 // 【修复】：引入了 LegendComponent, SVGRenderer 以支持图例和矢量图防切割
 import { use } from 'echarts/core'
@@ -820,7 +862,10 @@ import {
   updateAgentCode,
   uploadAgentDataset
 } from '../api/agent'
+import { fetchWorkflowList } from '../api/workflow'
 
+const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
 const taskList = ref([])
 const taskListRef = ref(null)
@@ -847,6 +892,9 @@ const shareWorkflowForm = ref({
   category: '',
   tags: ''
 })
+const workflowOptions = ref([])
+const workflowOptionsLoading = ref(false)
+const draftSourceWorkflowId = ref(null)
 const currentReport = ref(null)
 const runOffline = ref(true)
 const taskRunModeMap = ref({})
@@ -933,6 +981,9 @@ const shareWorkflowDisabledReason = computed(() => {
   if (lifecycleStatus.value !== 'COMPLETED') return '仅 COMPLETED 状态任务可分享工作流'
   return ''
 })
+const selectedSourceWorkflow = computed(() =>
+  workflowOptions.value.find((item) => String(item.id) === String(draftSourceWorkflowId.value))
+)
 const runButtonText = computed(() => (lifecycleStatus.value === 'READY_TO_RESUME' ? '继续运行' : '运行'))
 const formattedReview = computed(() => JSON.stringify(pendingReview.value?.payload || pendingReview.value, null, 2))
 const normalizeReviewStage = (stage) => {
@@ -1695,6 +1746,125 @@ const downloadBlob = (blob, filename) => {
   document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url)
 }
 
+const normalizeWorkflowIdValue = (value) => {
+  const raw = Array.isArray(value) ? value[0] : value
+  const text = String(raw ?? '').trim()
+  if (!text) return null
+  const numeric = Number(text)
+  return Number.isFinite(numeric) ? numeric : text
+}
+
+const normalizeWorkflowCollection = (payload) => {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.items)) return payload.items
+  if (Array.isArray(payload?.list)) return payload.list
+  if (Array.isArray(payload?.records)) return payload.records
+  if (Array.isArray(payload?.data?.items)) return payload.data.items
+  if (Array.isArray(payload?.data?.list)) return payload.data.list
+  return []
+}
+
+const normalizeWorkflowAuditStatus = (value) => {
+  const numeric = Number(value)
+  if (!Number.isNaN(numeric)) {
+    if (numeric === 0) return 'PENDING'
+    if (numeric === 1) return 'APPROVED'
+    if (numeric === 2) return 'REJECTED'
+    if (numeric === 3) return 'OFFLINE'
+  }
+  const normalized = String(value || '').trim().toUpperCase()
+  if (!normalized) return 'UNKNOWN'
+  if (['WAITING', 'TO_REVIEW'].includes(normalized)) return 'PENDING'
+  if (['SUCCESS', 'PASSED'].includes(normalized)) return 'APPROVED'
+  if (['FAILED', 'REFUSED'].includes(normalized)) return 'REJECTED'
+  if (['TAKE_DOWN', 'TAKEN_DOWN'].includes(normalized)) return 'OFFLINE'
+  return normalized
+}
+
+const workflowStatusLabel = (status) => {
+  if (status === 'PENDING') return '审核中'
+  if (status === 'APPROVED') return '已通过'
+  if (status === 'REJECTED') return '已驳回'
+  if (status === 'OFFLINE') return '已下架'
+  return '状态未知'
+}
+
+const buildWorkflowOption = (item) => {
+  const id = normalizeWorkflowIdValue(item?.id ?? item?.workflow_id)
+  if (!id) return null
+  const title = item?.title || item?.name || `工作流 ${id}`
+  const status = normalizeWorkflowAuditStatus(item?.audit_status ?? item?.status)
+  const sourceId = item?.source_workflow_id || item?.fork_from_workflow_id || null
+  const metaParts = [`ID ${id}`, workflowStatusLabel(status)]
+  if (sourceId) metaParts.push(`Fork ${sourceId}`)
+  if (item?.category) metaParts.push(String(item.category))
+  return {
+    id,
+    title,
+    status,
+    sourceId,
+    optionLabel: `${title} · ${metaParts.join(' · ')}`,
+    metaText: metaParts.join(' · '),
+    raw: item
+  }
+}
+
+const buildWorkflowPlaceholderOption = (workflowId) => {
+  const id = normalizeWorkflowIdValue(workflowId)
+  if (!id) return null
+  return {
+    id,
+    title: `工作流 ${id}`,
+    status: 'UNKNOWN',
+    sourceId: null,
+    optionLabel: `工作流 ${id} · ID ${id}`,
+    metaText: `ID ${id}`,
+    raw: null
+  }
+}
+
+const mergeWorkflowOptions = (options, preferredId) => {
+  const merged = []
+  const seen = new Set()
+  options.forEach((option) => {
+    if (!option?.id) return
+    const key = String(option.id)
+    if (seen.has(key)) return
+    seen.add(key)
+    merged.push(option)
+  })
+  const normalizedPreferredId = normalizeWorkflowIdValue(preferredId)
+  if (normalizedPreferredId && !seen.has(String(normalizedPreferredId))) {
+    const placeholder = buildWorkflowPlaceholderOption(normalizedPreferredId)
+    if (placeholder) merged.unshift(placeholder)
+  }
+  return merged
+}
+
+const loadWorkflowOptions = async (preferredId = draftSourceWorkflowId.value) => {
+  const normalizedPreferredId = normalizeWorkflowIdValue(preferredId)
+  if (!userStore.token) {
+    workflowOptions.value = mergeWorkflowOptions([], normalizedPreferredId)
+    return
+  }
+
+  workflowOptionsLoading.value = true
+  try {
+    const payload = await fetchWorkflowList({ scope: 'mine' })
+    const options = normalizeWorkflowCollection(payload)
+      .map(buildWorkflowOption)
+      .filter(Boolean)
+    workflowOptions.value = mergeWorkflowOptions(options, normalizedPreferredId)
+  } catch (error) {
+    workflowOptions.value = mergeWorkflowOptions(workflowOptions.value, normalizedPreferredId)
+    if (createDialogVisible.value && !normalizedPreferredId) {
+      ElMessage.warning(error.message || '工作流列表加载失败')
+    }
+  } finally {
+    workflowOptionsLoading.value = false
+  }
+}
+
 const syncTaskState = (task) => {
   if (!task) return
   const nextTaskId = String(normalizeTaskId(task) || currentTaskId.value || '')
@@ -1706,7 +1876,7 @@ const syncTaskState = (task) => {
   if (nextTaskId && taskRunModeMap.value[nextTaskId] !== undefined) runOffline.value = taskRunModeMap.value[nextTaskId]
 }
 
-const openCreateDialog = () => {
+const openCreateDialog = (sourceWorkflowId = null) => {
   draftTaskDesc.value = ''
   draftDatasetId.value = null
   draftDatasetName.value = ''
@@ -1715,7 +1885,32 @@ const openCreateDialog = () => {
   draftPreviewDialogVisible.value = false
   uploadProgress.value = 0
   selectedHitlStages.value = []
+  draftSourceWorkflowId.value = normalizeWorkflowIdValue(sourceWorkflowId)
   createDialogVisible.value = true
+  loadWorkflowOptions(draftSourceWorkflowId.value)
+}
+
+const clearWorkflowReuseQuery = () => {
+  const query = { ...route.query }
+  delete query.source_workflow_id
+  delete query.workflow_id
+  delete query.open_create
+  router.replace({ path: route.path, query }).catch(() => {})
+}
+
+const consumeWorkflowReuseQuery = () => {
+  if (route.path !== '/task-center') return
+  const queryWorkflowId = normalizeWorkflowIdValue(route.query.source_workflow_id || route.query.workflow_id)
+  const shouldOpenCreate = queryWorkflowId || route.query.open_create
+  if (!shouldOpenCreate) return
+
+  openCreateDialog(queryWorkflowId)
+  if (queryWorkflowId) {
+    ElMessage.success('已选择 Fork 工作流，请上传数据集后开始运行')
+  } else {
+    ElMessage.success('Fork 成功，请在工作流模板中选择后创建任务')
+  }
+  clearWorkflowReuseQuery()
 }
 
 const openPreviewDialog = async () => {
@@ -1773,7 +1968,16 @@ const createAndRunTask = async () => {
   creating.value = true
   try {
     const hitlStages = canReview.value ? [...selectedHitlStages.value] : []
-    const task = await createAgentTask({ dataset_id: Number(draftDatasetId.value), task_description: draftTaskDesc.value.trim(), hitl: hitlStages })
+    const taskPayload = {
+      dataset_id: Number(draftDatasetId.value),
+      task_description: draftTaskDesc.value.trim(),
+      hitl: hitlStages
+    }
+    const sourceWorkflowId = normalizeWorkflowIdValue(draftSourceWorkflowId.value)
+    const numericSourceWorkflowId = Number(sourceWorkflowId)
+    if (Number.isFinite(numericSourceWorkflowId)) taskPayload.source_workflow_id = numericSourceWorkflowId
+
+    const task = await createAgentTask(taskPayload)
     const nextTaskId = normalizeTaskId(task)
     if (!nextTaskId) {
       throw new Error('任务创建成功但未返回任务ID，请联系后端检查返回结构')
@@ -2482,6 +2686,12 @@ watch(currentTaskId, (nextId, prevId) => {
   shareWorkflowSubmitting.value = false
 })
 
+watch(
+  () => [route.query.source_workflow_id, route.query.workflow_id, route.query.open_create],
+  () => consumeWorkflowReuseQuery(),
+  { immediate: true }
+)
+
 onMounted(() => {
   loadTasks(false, true)
   if (typeof window !== 'undefined') {
@@ -3062,6 +3272,79 @@ onBeforeUnmount(() => {
 .create-shell { display: grid; gap: 14px; }
 .create-section { padding: 14px; border: 1px solid var(--zs-border); border-radius: 16px; background: var(--zs-panel-soft); }
 .create-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.workflow-template-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.workflow-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.workflow-option-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--zs-text);
+}
+.workflow-option-meta {
+  flex: 0 0 auto;
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+.workflow-template-selected {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--zs-muted);
+  font-size: 13px;
+}
+.workflow-template-selected strong {
+  color: var(--zs-text);
+}
+.workflow-template-selected small {
+  color: var(--zs-subtle);
+}
+:global(.workflow-template-select-popper) {
+  border: 1px solid var(--zs-border) !important;
+  background: var(--zs-panel) !important;
+  box-shadow: var(--zs-shadow) !important;
+}
+:global(.workflow-template-select-popper .el-popper__arrow::before) {
+  border-color: var(--zs-border) !important;
+  background: var(--zs-panel) !important;
+}
+:global(.workflow-template-select-popper .el-select-dropdown) {
+  background: var(--zs-panel) !important;
+}
+:global(.workflow-template-select-popper .el-select-dropdown__list) {
+  padding: 6px !important;
+}
+:global(.workflow-template-select-popper .el-select-dropdown__item) {
+  min-height: 36px;
+  border-radius: 10px;
+  color: var(--zs-text) !important;
+}
+:global(.workflow-template-select-popper .el-select-dropdown__item.hover),
+:global(.workflow-template-select-popper .el-select-dropdown__item:hover) {
+  background: var(--zs-elevated) !important;
+  color: var(--zs-text) !important;
+}
+:global(.workflow-template-select-popper .el-select-dropdown__item.selected) {
+  background: var(--zs-panel-soft) !important;
+  color: var(--zs-text) !important;
+  font-weight: 700;
+}
+:global(.workflow-template-select-popper .workflow-option-title) {
+  color: var(--zs-text) !important;
+}
+:global(.workflow-template-select-popper .workflow-option-meta) {
+  color: var(--zs-muted) !important;
+}
 .run-mode { display: flex; align-items: center; gap: 10px; color: var(--zs-muted); font-size: 13px; }
 .upload-dropzone :deep(.el-upload-dragger) { width: 100%; }
 .upload-icon { margin-bottom: 4px; }
